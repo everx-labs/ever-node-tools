@@ -1,2 +1,2 @@
-# ton-labs-node-tools
+# ton-node-tools
 tools for node
