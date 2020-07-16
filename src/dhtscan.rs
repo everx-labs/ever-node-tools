@@ -101,11 +101,6 @@ fn scan(config: &str) -> Result<()> {
             );
             count -= 1;
         }       
-/*    
-{"@type":"dht.node","id":{"@type":"pub.ed25519","key":"ii7AXJGTxUuCVb9JO/92SnMd1AUKLk+6VGgbcjOX600="},
-"addr_list":{"@type":"adnl.addressList","addrs":[{"@type":"adnl.address.udp","ip":874382974,"port":30303}],
-"version":0,"reinit_date":0,"priority":0,"expire_at":0},"version":-1,"signature":"HL+b1Ly3/8sEFFbOveAs+qxksru5Ru5whdeHciGRn671/pBGiSqnUvhMrDm8dh0zoIc71uNdcoXJd10X2ASCDw=="}
-*/
     } else {
         println!("---- No DHT nodes found");
     }
