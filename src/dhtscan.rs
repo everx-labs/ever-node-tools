@@ -39,10 +39,14 @@ fn scan(config: &str) -> Result<()> {
     println!("Scanning DHT...");
     let mut iter = None;
     loop {
-        if rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?.is_empty() {
+        let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
+        println!(
+            "Found {} new nodes, searching more...", 
+            dht.get_known_nodes(5000)?.len() - dht_nodes.len()
+        );
+        if res.is_empty() {
             break;
         }
-        println!("Step {:?}: found {} nodes", iter, dht.get_known_nodes(5000)?.len());
     }
     let nodes = dht.get_known_nodes(5000)?;
     let mut count = nodes.len();
