@@ -1,0 +1,13 @@
+[package]
+name = "ton-node-tools"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]                                                
+adnl = { git = "ssh://git@github.com/tonlabs/adnl.git" }
+base64 = "0.11.0"
+ton_types = { git = "ssh://git@github.com/tonlabs/ton-types.git" }
+
+[[bin]]
+name = "keygen"
+path = "src/keygen.rs"
