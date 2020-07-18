@@ -3,12 +3,12 @@ use dht::DhtNode;
 use overlay::OverlayNode;
 use std::{env, ops::Deref};
 use ton_node::config::TonNodeGlobalConfigJson;
-use ton_types::{ error, Result };
+use ton_types::{error, fail, Result};
 
 const IP: &str = "0.0.0.0:4900";
 const KEY_TAG: usize = 1;
 
-fn scan(config: &str) -> Result<()> {
+fn scan(config: &str, jsonl: bool) -> Result<()> {
 
     let config = TonNodeGlobalConfigJson::from_json_file(config).map_err(
         |e| error!("Cannot read config from file {}: {}", config, e) 
@@ -33,7 +33,9 @@ fn scan(config: &str) -> Result<()> {
     let overlay_id = overlay.calc_overlay_short_id(-1, 0x8000000000000000u64 as i64)?;
     rt.block_on(AdnlNode::start(&adnl, vec![dht.clone(), overlay.clone()]))?;
     for dht_node in dht_nodes.iter() {
-        dht.add_peer(dht_node)?;
+        if dht.add_peer(dht_node)?.is_none() {
+            fail!("Invalid DHT peer {:?}", dht_node)
+        }
     }
 
     println!("Scanning DHT...");
@@ -49,8 +51,7 @@ fn scan(config: &str) -> Result<()> {
         }
     }
     let nodes = dht.get_known_nodes(5000)?;
-    let mut count = nodes.len();
-    if count > 0 {
+    if nodes.len() > dht_nodes.len() {
         println!("---- Found DHT nodes:");
         for node in nodes {
             let mut skip = false;
@@ -65,41 +66,39 @@ fn scan(config: &str) -> Result<()> {
             }
             let key = KeyOption::from_tl_public_key(&node.id)?;
             let adr = AdnlNode::parse_address_list(&node.addr_list)?.into_udp();
-            println!(                         
-                "{{\n    \
-                    \"@type\": \"dht.node\",\n    \
-                    \"id\": {{\n        \
-                        \"@type\": \"pub.ed25519\",\n        \
-                        \"key\": \"{}\"\n    \
-                    }},\n    \
-                    \"addr_list\": {{\n        \
-                        \"@type\": \"adnl.addressList\",\n         \
-                        \"addrs\": [\n            \
-                            {{\n                \
-                                \"@type\": \"adnl.address.udp\",\n                \
-                                \"ip\": {},\n                \
-                                \"port\": {}\n            \
-                            }}\n        \
-                        ],\n        \
-                        \"version\": 0,\n        \
-                        \"reinit_date\": 0,\n        \
-                        \"priority\": 0,\n        \
-                        \"expire_at\": 0\n    \
-                    }},\n    \
-                    \"version\": -1,\n    \
-                    \"signature\": \"{}\"\n\
-                }}{}",
-                base64::encode(key.pub_key()?),
-                adr.ip,
-                adr.port,
-                base64::encode(node.signature.deref()),
-                if count > 1 {
-                    ","
-                } else {
-                    ""
+            let json = serde_json::json!(
+                {
+                    "@type": "dht.node",
+                    "id": {
+                        "@type": "pub.ed25519",
+                        "key": base64::encode(key.pub_key()?)
+                    },
+                    "addr_list": {
+                        "@type": "adnl.addressList",
+                        "addrs": [
+                            {
+                                "@type": "adnl.address.udp",
+                                "ip": adr.ip,
+                                "port": adr.port
+                            }
+                        ],
+                        "version": node.addr_list.version,
+                        "reinit_date": node.addr_list.reinit_date,
+                        "priority": node.addr_list.priority,
+                        "expire_at": node.addr_list.expire_at
+                    },
+                    "version": node.version,
+                    "signature": base64::encode(node.signature.deref())
+                }
+            ); 
+            println!(
+                "{},", 
+                if jsonl {
+                    serde_json::to_string(&json)?
+                } else { 
+                    serde_json::to_string_pretty(&json)?
                 }
             );
-            count -= 1;
         }       
     } else {
         println!("---- No DHT nodes found");
@@ -109,15 +108,19 @@ fn scan(config: &str) -> Result<()> {
 
 fn main() {
     let mut config = None;
+    let mut jsonl = false;
     for arg in env::args().skip(1) {
-        config = Some(arg);
-        break;
+        if arg == "--jsonl" {
+            jsonl = true
+        } else {
+            config = Some(arg)
+        }
     }
     let config = if let Some(config) = config {
-         config
+        config
     } else {
-         println!("Usage: dhtscan <path-to-global-config>");
-         return
+        println!("Usage: dhtscan [--jsonl] <path-to-global-config>");
+        return
     };
-    scan(&config).unwrap_or_else(|e| println!("DHT scanning error: {}", e))
+    scan(&config, jsonl).unwrap_or_else(|e| println!("DHT scanning error: {}", e))
 }
