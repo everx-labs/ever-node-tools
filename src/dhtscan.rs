@@ -57,7 +57,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
             let mut skip = false;
             for dht_node in dht_nodes.iter() {
                 if dht_node.id != node.id {
-                    if let Ok(true) = dht.ping(dht_node.id).await {
+                    if let Ok(true) = rt.block_on(dht.ping(dht_node.id)) {
                         continue;
                     }
                 }
