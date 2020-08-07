@@ -56,18 +56,19 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
         for node in nodes {
             let mut skip = false;
             for dht_node in dht_nodes.iter() {
-                if dht_node.id != node.id {
-                    if let Ok(true) = rt.block_on(dht.ping(dht_node.id)) {
-                        continue;
-                    }
+                if dht_node.id == node.id {
+                    skip = true;
+                    break
                 }
-                skip = true;
-                break;
             } 
             if skip {
                 continue;
             }
             let key = KeyOption::from_tl_public_key(&node.id)?;
+            match rt.block_on(dht.ping(key.id())) {
+                Ok(true) => (),
+                _ => continue
+            }
             let adr = AdnlNode::parse_address_list(&node.addr_list)?.into_udp();
             let json = serde_json::json!(
                 {
