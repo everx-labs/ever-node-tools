@@ -50,6 +50,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
             break;
         }
     }
+    let mut count = 0;
     let nodes = dht.get_known_nodes(5000)?;
     if nodes.len() > dht_nodes.len() {
         println!("---- Found DHT nodes:");
@@ -95,6 +96,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
                     "signature": base64::encode(node.signature.deref())
                 }
             ); 
+            count += 1;
             println!(
                 "{},", 
                 if jsonl {
@@ -104,6 +106,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
                 }
             );
         }       
+        println!("Total: {} DHT nodes", count);
     } else {
         println!("---- No DHT nodes found");
     }
