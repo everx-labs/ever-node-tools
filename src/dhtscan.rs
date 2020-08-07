@@ -15,7 +15,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
     )?;
     let zero_state = config.zero_state()?;
     let zero_state = zero_state.file_hash;
-    let dht_nodes =  config.get_dht_nodes_configs()?;
+    let dht_nodes = config.get_dht_nodes_configs()?;
 
     let mut rt = tokio::runtime::Runtime::new()?;
     let config = AdnlNodeConfig::with_ip_address_and_key_type(
@@ -56,10 +56,13 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
         for node in nodes {
             let mut skip = false;
             for dht_node in dht_nodes.iter() {
-                if dht_node.id == node.id {
-                    skip = true;
-                    break;
+                if dht_node.id != node.id {
+                    if let Ok(true) = dht.ping(dht_node.id).await {
+                        continue;
+                    }
                 }
+                skip = true;
+                break;
             } 
             if skip {
                 continue;
