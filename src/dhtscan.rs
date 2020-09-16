@@ -5,6 +5,8 @@ use std::{env, ops::Deref};
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
 
+include!("../common/src/log.rs");
+
 const IP: &str = "0.0.0.0:4900";
 const KEY_TAG: usize = 1;
 
@@ -18,7 +20,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
     let dht_nodes = config.get_dht_nodes_configs()?;
 
     let mut rt = tokio::runtime::Runtime::new()?;
-    let config = AdnlNodeConfig::with_ip_address_and_key_type(
+    let (_, config) = AdnlNodeConfig::with_ip_address_and_key_type(
         IP, 
         KeyOption::KEY_ED25519, 
         KEY_TAG
@@ -32,13 +34,21 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
     )?;
     let overlay_id = overlay.calc_overlay_short_id(-1, 0x8000000000000000u64 as i64)?;
     rt.block_on(AdnlNode::start(&adnl, vec![dht.clone(), overlay.clone()]))?;
+
+    let mut preset_nodes = Vec::new();
     for dht_node in dht_nodes.iter() {
-        if dht.add_peer(dht_node)?.is_none() {
+        if let Some(key) = dht.add_peer(dht_node)? {
+            preset_nodes.push(key)
+        } else {
             fail!("Invalid DHT peer {:?}", dht_node)
         }
     }
 
     println!("Scanning DHT...");
+    for node in preset_nodes.iter() {
+        rt.block_on(dht.find_dht_nodes(node))?;
+    }
+
     let mut iter = None;
     loop {
         let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
@@ -129,5 +139,6 @@ fn main() {
         println!("Usage: dhtscan [--jsonl] <path-to-global-config>");
         return
     };
+    init_test_log();
     scan(&config, jsonl).unwrap_or_else(|e| println!("DHT scanning error: {}", e))
 }
