@@ -11,8 +11,8 @@ fn gen() -> Result<()> {
              \"pvt_key\": \"{}\"\n\
         }}",
         KeyOption::KEY_ED25519,
-        base64::encode(keypair.pub_key()?),
-        base64::encode(keypair.pvt_key()?)
+        base64::encode(keypair.1.pub_key()?),
+        base64::encode(keypair.1.pvt_key()?)
     );        
     Ok(())
 } 

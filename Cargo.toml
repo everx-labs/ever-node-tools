@@ -8,6 +8,8 @@ adnl = { git = "ssh://git@github.com/tonlabs/adnl.git" }
 base64 = "0.11.0"
 dht = { git = "ssh://git@github.com/tonlabs/dht.git" }
 failure = "0.1.6"
+log = "0.4.11"
+log4rs = "0.8.3"
 overlay = { git = "ssh://git@github.com/tonlabs/overlay.git" }
 serde_json = "1.0.56"
 tokio = { version = "0.2.5", features = ["rt-threaded", "udp"] }
