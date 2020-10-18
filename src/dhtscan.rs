@@ -23,7 +23,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
     let (_, config) = AdnlNodeConfig::with_ip_address_and_key_type(
         IP, 
         KeyOption::KEY_ED25519, 
-        KEY_TAG
+        vec![KEY_TAG]
     )?;
     let adnl = rt.block_on(AdnlNode::with_config(config))?;
     let dht = DhtNode::with_adnl_node(adnl.clone(), KEY_TAG)?;
