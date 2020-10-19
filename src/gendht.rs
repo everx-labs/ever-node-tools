@@ -3,10 +3,8 @@ use dht::DhtNode;
 use std::{env, ops::Deref};
 use ton_types::{Result};
 
-fn gen(ip: &str) -> Result<()> {
+fn gen(ip: &str, dht_key_enc: &str) -> Result<()> {
     let mut rt = tokio::runtime::Runtime::new().unwrap();
-    let (_, dht_key) = KeyOption::with_type_id(KeyOption::KEY_ED25519)?;
-    let dht_key_enc = base64::encode(dht_key.pvt_key()?);
     let config = AdnlNodeConfig::from_json(
        adnl_node_test_config!(ip, adnl_node_test_key!(1 as usize, dht_key_enc)),
        true
@@ -46,15 +44,10 @@ fn gen(ip: &str) -> Result<()> {
 } 
 
 fn main() {
-    let mut ip : std::string::String = "0.0.0.0:30303".to_string();
-    let mut check = false;
-    for arg in env::args().skip(1) {
-        ip = arg;
-        check = true;
-    }
-    if check == false {
-        println!("Usage: genconfig <ip:port>");
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 3 {
+        println!("Usage: genconfig <ip:port> <dhtkey from config.json>");
         return
     };
-    gen(&ip).unwrap_or_else(|e| println!("gen error: {}", e))
+    gen(&args[1], &args[2]).unwrap_or_else(|e| println!("gen error: {}", e))
 }
