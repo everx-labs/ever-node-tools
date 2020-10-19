@@ -25,5 +25,5 @@ name = "dhtscan"
 path = "src/dhtscan.rs"
 
 [[bin]]
-name = "genconfig"
-path = "src/genconfig.rs"
+name = "gendht"
+path = "src/gendht.rs"
