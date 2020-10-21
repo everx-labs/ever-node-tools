@@ -46,7 +46,7 @@ fn gen(ip: &str, dht_key_enc: &str) -> Result<()> {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
-        println!("Usage: genconfig <ip:port> <private DHT key in base64>");
+        println!("Usage: gendht <ip:port> <private DHT key in base64>");
         return
     };
     gen(&args[1], &args[2]).unwrap_or_else(|e| println!("gen error: {}", e))
