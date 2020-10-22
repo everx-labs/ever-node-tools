@@ -23,3 +23,7 @@ path = "src/keygen.rs"
 [[bin]]
 name = "dhtscan"
 path = "src/dhtscan.rs"
+
+[[bin]]
+name = "gendht"
+path = "src/gendht.rs"
