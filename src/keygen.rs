@@ -2,7 +2,7 @@ use adnl::common::KeyOption;
 use ton_types::Result;
      
 fn gen() -> Result<()> {
-    let keypair = KeyOption::with_type_id(KeyOption::KEY_ED25519)?;
+    let (private, public) = KeyOption::with_type_id(KeyOption::KEY_ED25519)?;
     println!("Keypair generated:");
     println!(                         
         "{{\n    \
@@ -11,8 +11,8 @@ fn gen() -> Result<()> {
              \"pvt_key\": \"{}\"\n\
         }}",
         KeyOption::KEY_ED25519,
-        base64::encode(keypair.1.pub_key()?),
-        base64::encode(keypair.1.pvt_key()?)
+        base64::encode(public.pub_key()?),
+        base64::encode(&private[..])
     );        
     Ok(())
 } 
