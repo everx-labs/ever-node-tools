@@ -2,17 +2,23 @@
 name = "ton-node-tools"
 version = "0.1.0"
 edition = "2018"
+build = "common/build/build.rs"
 
-[dependencies]                                                
-adnl = { git = "ssh://git@github.com/tonlabs/adnl.git" }
+[dependencies]
 base64 = "0.11.0"
-dht = { git = "ssh://git@github.com/tonlabs/dht.git" }
 failure = "0.1.6"
+hex = "0.4.2"
 log = "0.4.11"
 log4rs = "0.8.3"
-overlay = { git = "ssh://git@github.com/tonlabs/overlay.git" }
+serde = "1.0.105"
 serde_json = "1.0.56"
+clap = "2.33.3"
+
+adnl = { git = "ssh://git@github.com/tonlabs/adnl.git", features = ["client"] }
+dht = { git = "ssh://git@github.com/tonlabs/dht.git" }
+overlay = { git = "ssh://git@github.com/tonlabs/overlay.git" }
 tokio = { version = "0.2.5", features = ["rt-threaded", "udp"] }
+ton_api = { git = "ssh://git@github.com/tonlabs/ton-tl.git", package = "ton_api" }
 ton_node = { git = "ssh://git@github.com/tonlabs/ton-node.git" }
 ton_types = { git = "ssh://git@github.com/tonlabs/ton-types.git" }
 
@@ -25,9 +31,9 @@ name = "gendht"
 path = "src/gendht.rs"
 
 [[bin]]
-name = "keygen"
-path = "src/keygen.rs"
+name = "console"
+path = "src/console.rs"
 
 [[bin]]
-name = "notests"
-path = "src/notests.rs"
+name = "keygen"
+path = "src/keygen.rs"
