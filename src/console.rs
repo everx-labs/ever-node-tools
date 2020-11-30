@@ -149,22 +149,35 @@ async fn main() {
     // init_test_log();
     let args = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
+        .arg(Arg::with_name("CONFIG")
+            .short("g")
+            .long("config")
+            .help("config for console")
+            .conflicts_with("ADDRESS")
+            .conflicts_with("PUBLIC")
+            .conflicts_with("KEY")
+            .takes_value(true)
+            .number_of_values(1)
+            .required(true))
         .arg(Arg::with_name("ADDRESS")
             .short("a")
             .long("address")
             .help("server address")
+            .conflicts_with("CONFIG")
             .takes_value(true)
             .required(true))
         .arg(Arg::with_name("PUBLIC")
             .short("p")
             .long("pub")
             .help("server public key")
+            .conflicts_with("CONFIG")
             .takes_value(true)
             .required(true))
         .arg(Arg::with_name("KEY")
             .short("k")
             .long("key")
             .help("private key")
+            .conflicts_with("CONFIG")
             .takes_value(true))
         .arg(Arg::with_name("COMMANDS")
             .short("c")
@@ -181,18 +194,39 @@ async fn main() {
             .number_of_values(1))
         .get_matches();
 
-    let config = AdnlClientConfig::with_params(
-        args.value_of("ADDRESS").expect("required set for address"),
-        args.value_of("PUBLIC").expect("required set for public key"),
-        args.value_of("KEY"),
-        Default::default()
-    ).unwrap();
+    let config = if let Some(config) = args.value_of("CONFIG") {
+        std::fs::read_to_string(config).unwrap()
+    } else {
+        let mut map = serde_json::Map::new();
+        map.insert("server_address".to_string(), args.value_of("ADDRESS").expect("required set for address").into());
+        map.insert("server_key".to_string(), serde_json::json!({
+            "type_id": 1209251014,
+            "pub_key": std::fs::read_to_string(args.value_of("PUBLIC").expect("required set for public key")).unwrap()
+        }).into());
+        if let Some(client_key) = args.value_of("KEY") {
+            map.insert("client_key".to_string(), serde_json::json!({
+                "type_id": 1209251014,
+                "pvt_key": std::fs::read_to_string(client_key).unwrap()
+            }).into());
+        }
+        serde_json::json!(map).to_string()
+        // format!("", serde_json::json!(map));
+    };
+    let config = AdnlClientConfig::from_json(&config).unwrap();
+    let timeout = match args.value_of("TIMEOUT") {
+        Some(timeout) => u64::from_str(timeout).expect("timeout must be set in microseconds"),
+        None => 0
+    };
+    let timeout = std::time::Duration::from_micros(timeout);
     let mut client = LiteClient::connect(&config).await.unwrap();
     if let Some(commands) = args.values_of("COMMANDS") {
+        // batch mode - call commands and exit
         for command in commands {
             client.command(command.trim_matches('\"')).await.unwrap();
+            tokio::time::delay_for(timeout).await;
         }
     } else {
+        // interactive mode
         loop {
             let mut line = String::default();
             std::io::stdin().read_line(&mut line).unwrap();
