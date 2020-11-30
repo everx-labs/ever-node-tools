@@ -37,7 +37,3 @@ path = "src/console.rs"
 [[bin]]
 name = "keygen"
 path = "src/keygen.rs"
-
-#[[bin]]
-#name = "notests"
-#path = "src/notests.rs"
