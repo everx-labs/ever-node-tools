@@ -7,6 +7,7 @@ build = "common/build/build.rs"
 [dependencies]
 base64 = "0.11.0"
 failure = "0.1.6"
+hex = "0.4.2"
 log = "0.4.11"
 log4rs = "0.8.3"
 serde = "1.0.105"
@@ -37,6 +38,6 @@ path = "src/console.rs"
 name = "keygen"
 path = "src/keygen.rs"
 
-[[bin]]
-name = "notests"
-path = "src/notests.rs"
+#[[bin]]
+#name = "notests"
+#path = "src/notests.rs"

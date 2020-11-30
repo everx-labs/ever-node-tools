@@ -62,7 +62,7 @@ commands! {
     NewKeypair, "newkey", "newkey\tgenerates new key pair on server"
     Sign, "sign", "sign <keyhash> <data>\tsigns bytestring with privkey"
     AddValidatorPermKey, "addpermkey", "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key"
-    AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expireat>\tadd validator temp key"
+    AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
     AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
 }
