@@ -60,6 +60,7 @@ macro_rules! commands {
 
 commands! {
     NewKeypair, "newkey", "newkey\tgenerates new key pair on server"
+    ExportPub, "exportpub", "exportpub <keyhash>\texports public key by key hash"
     Sign, "sign", "sign <keyhash> <data>\tsigns bytestring with privkey"
     AddValidatorPermKey, "addpermkey", "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key"
     AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
@@ -147,6 +148,20 @@ impl SendReceive for NewKeypair {
     }
 }
 
+impl SendReceive for ExportPub {
+    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+        let key_hash = parse_int256(params.next(), "key_hash")?;
+        Ok(TLObject::new(ton::rpc::engine::validator::ExportPublicKey {
+            key_hash
+        }))
+    }
+    fn receive(answer: TLObject) -> std::result::Result<(), TLObject> {
+        answer.downcast::<ton_api::ton::PublicKey>()
+            .map(|pub_key| println!("imported key: {} {}",
+                hex::encode(&pub_key.key().unwrap().0), base64::encode(&pub_key.key().unwrap().0)))
+    }
+}
+
 impl SendReceive for Sign {
     fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
         let key_hash = parse_int256(params.next(), "key_hash")?;
@@ -218,12 +233,12 @@ impl SendReceive for AddAdnlAddr {
     }
 }
 
-/// Lite client
-struct LiteClient{
+/// ControlClient
+struct ControlClient{
     adnl: AdnlClient,
 }
 
-impl LiteClient {
+impl ControlClient {
 
     /// Connect to server
     async fn connect(config: &AdnlClientConfig) -> Result<Self> {
@@ -337,7 +352,7 @@ async fn main() {
         None => 0
     };
     let timeout = std::time::Duration::from_micros(timeout);
-    let mut client = LiteClient::connect(&config).await.unwrap();
+    let mut client = ControlClient::connect(&config).await.unwrap();
     if let Some(commands) = args.values_of("COMMANDS") {
         // batch mode - call commands and exit
         for command in commands {
@@ -354,7 +369,6 @@ async fn main() {
             match line.trim_end() {
                 "quit" => break,
                 command => {
-                    println!("{}", command);
                     if let Err(err) = client.command(command).await {
                         println!("{}", err)
                     }

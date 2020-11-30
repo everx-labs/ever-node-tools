@@ -4,7 +4,7 @@ use ton_types::Result;
 fn gen() -> Result<()> {
     let (private, public) = KeyOption::with_type_id(KeyOption::KEY_ED25519)?;
     println!("Keypair generated:");
-    println!("{}", serde_json::to_string_pretty(&private).unwrap());
+    println!("{}", serde_json::to_string_pretty(&private)?);
     println!(                         
         "{{\n    \
              \"type_id\": {},\n    \
