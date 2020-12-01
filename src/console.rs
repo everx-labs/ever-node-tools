@@ -1,5 +1,5 @@
-use adnl::common::serialize;
-use adnl::client::{AdnlClient, AdnlClientConfig};
+use adnl::common::{KeyOption, serialize};
+use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
 use ton_api::{
     ton::{
         self, TLObject, 
@@ -7,7 +7,7 @@ use ton_api::{
         rpc::engine::validator::ControlQuery,
     }
 };
-use ton_types::{error, fail, Result};
+use ton_types::{error, fail, Result, BuilderData};
 use clap::{Arg, App};
 use std::convert::TryInto;
 use std::env;
@@ -17,9 +17,9 @@ include!("../../common/src/log.rs");
 
 trait SendReceive {
     fn send<'a>(params: impl Iterator<Item = &'a str>) -> Result<TLObject>;
-    fn receive(answer: TLObject) -> std::result::Result<(), TLObject> {
-        answer.downcast::<ton_api::ton::engine::validator::Success>()
-            .map(|_| println!("success"))
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        answer.downcast::<ton_api::ton::engine::validator::Success>()?;
+        Ok(("success".to_string(), vec![]))
     }
 }
 
@@ -49,7 +49,7 @@ macro_rules! commands {
                 _ => fail!("command {} not supported", name)
             }
         }
-        fn command_receive(name: &str, answer: TLObject) -> std::result::Result<(), TLObject> {
+        fn command_receive(name: &str, answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
             match name {
                 $($name => $command::receive(answer), )*
                 _ => Err(answer)
@@ -68,14 +68,14 @@ commands! {
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
 }
 
-fn parse_any<A>(param_opt: Option<&str>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
+fn parse_any<A, T: AsRef<str>>(param_opt: Option<T>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
     param_opt
         .ok_or_else(|| error!("insufficient parameters"))
-        .and_then(|value| parse_value(value))
+        .and_then(|value| parse_value(value.as_ref()))
         .map_err(|_| error!("you must give {}", name))
 }
 
-fn parse_data(param_opt: Option<&str>, name: &str) -> Result<ton::bytes> {
+fn parse_data<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::bytes> {
     parse_any(
         param_opt,
         &format!("{} in hex format", name),
@@ -83,10 +83,10 @@ fn parse_data(param_opt: Option<&str>, name: &str) -> Result<ton::bytes> {
     )
 }
 
-fn parse_int256(param_opt: Option<&str>, name: &str) -> Result<ton::int256> {
+fn parse_int256<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::int256> {
     parse_any(
         param_opt,
-        &format!("{} in hex of base64 format", name),
+        &format!("{} in hex or base64 format", name),
         |value| {
             let value = match value.len() {
                 44 => base64::decode(value)?,
@@ -98,7 +98,7 @@ fn parse_int256(param_opt: Option<&str>, name: &str) -> Result<ton::int256> {
     )
 }
 
-fn parse_int(param_opt: Option<&str>, name: &str) -> Result<ton::int> {
+fn parse_int<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::int> {
     parse_any(param_opt, name, |value| Ok(ton::int::from_str(value)?))
 }
 
@@ -141,10 +141,9 @@ impl SendReceive for NewKeypair {
     fn send<'a>(_params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(), TLObject> {
-        answer.downcast::<ton_api::ton::engine::validator::KeyHash>()
-            .map(|key_hash| println!("received public key hash: {} {}",
-                hex::encode(&key_hash.key_hash().0), base64::encode(&key_hash.key_hash().0)))
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let key_hash = answer.downcast::<ton_api::ton::engine::validator::KeyHash>()?.key_hash().0.to_vec();
+        Ok((format!("received public key hash: {} {}", hex::encode(&key_hash), base64::encode(&key_hash)), key_hash))
     }
 }
 
@@ -155,10 +154,9 @@ impl SendReceive for ExportPub {
             key_hash
         }))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(), TLObject> {
-        answer.downcast::<ton_api::ton::PublicKey>()
-            .map(|pub_key| println!("imported key: {} {}",
-                hex::encode(&pub_key.key().unwrap().0), base64::encode(&pub_key.key().unwrap().0)))
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let pub_key = answer.downcast::<ton_api::ton::PublicKey>()?.key().unwrap().0.to_vec();
+        Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
 }
 
@@ -171,10 +169,9 @@ impl SendReceive for Sign {
             data
         }))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(), TLObject> {
-        answer.downcast::<ton_api::ton::engine::validator::Signature>()
-            .map(|signature| println!("got signature: {} {}",
-                hex::encode(&signature.signature().0), base64::encode(&signature.signature().0)))
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let signature = answer.downcast::<ton_api::ton::engine::validator::Signature>()?.signature().0.clone();
+        Ok((format!("got signature: {} {}", hex::encode(&signature), base64::encode(&signature)), signature))
     }
 }
 
@@ -235,15 +232,18 @@ impl SendReceive for AddAdnlAddr {
 
 /// ControlClient
 struct ControlClient{
+    config: AdnlConsoleConfigJson,
     adnl: AdnlClient,
 }
 
 impl ControlClient {
 
     /// Connect to server
-    async fn connect(config: &AdnlClientConfig) -> Result<Self> {
+    async fn connect(mut config: AdnlConsoleConfigJson) -> Result<Self> {
+        let adnl_config = AdnlClientConfig::from_json_config(config.config.take().unwrap())?;
         Ok(Self {
-            adnl: AdnlClient::connect(config).await?,
+            config,
+            adnl: AdnlClient::connect(&adnl_config).await?,
         })
     }
 
@@ -252,10 +252,17 @@ impl ControlClient {
         self.adnl.shutdown().await
     }
 
-    async fn command(&mut self, cmd: &str) -> Result<()> {
-        let mut split = cmd.split_whitespace();
-        let name = split.next().expect("takes_value set for COMMANDS");
-        let query = command_send(name, split)?;
+    async fn command(&mut self, cmd: &str) -> Result<(String, Vec<u8>)> {
+        let mut params = cmd.split_whitespace();
+        match params.next().expect("takes_value set for COMMANDS") {
+            "test" => self.proceed_test().await,
+            "election-bid" => self.proceed_election_bid(params).await,
+            name => self.proceed_command(name, params).await
+        }
+    }
+
+    async fn proceed_command<'a>(&mut self, name: &str, params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
+        let query = command_send(name, params)?;
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
         };
@@ -264,11 +271,104 @@ impl ControlClient {
         match answer.downcast::<ControlQueryError>() {
             Err(answer) => match command_receive(name, answer) {
                 Err(answer) => fail!("Wrong response to {:?}: {:?}", query, answer),
-                Ok(()) => Ok(())
+                Ok(result) => Ok(result)
             }
             Ok(error) => fail!("Error response to {:?}: {:?}", query, error),
         }
     }
+
+    async fn proceed_election_bid<'a>(&mut self, mut params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int;
+        let wallet_id = parse_int256(self.config.wallet_id.as_ref(), "wallet_id")?;
+        let elect_time = parse_int(params.next(), "elect_time")?;
+        if elect_time <= 0 {
+            fail!("<elect-utime> must be a positive integer")
+        }
+        let elect_time_str = &format!("{}", elect_time)[..];
+        let expire_time = parse_int(params.next(), "expire_time")?;
+        if expire_time <= elect_time {
+            fail!("<expire-utime> must be a grater than elect_time")
+        }
+        let expire_time_str = &format!("{}", expire_time)[..];
+        let max_factor = self.config.max_factor.ok_or_else(|| error!("you must give max_factor as real"))?;
+        if max_factor < 1.0 || max_factor > 100.0 {
+            fail!("<max-factor> must be a real number 1..100")
+        }
+        let max_factor = (max_factor * 65536.0) as u32;
+
+        let (s, perm) = self.proceed_command("newkey", vec![].drain(..)).await?;
+        log::trace!("{}", s);
+        let perm_str = &hex::encode_upper(&perm)[..];
+
+        let (s, pub_key) = self.proceed_command("exportpub", vec![perm_str].drain(..)).await?;
+        log::trace!("{}", s);
+
+        let (s, _) = self.proceed_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].drain(..)).await?;
+        log::trace!("{}", s);
+
+        let (s, _) = self.proceed_command("addtempkey", vec![perm_str, perm_str, expire_time_str].drain(..)).await?;
+        log::trace!("{}", s);
+
+        let (s, adnl) = self.proceed_command("newkey", vec![].drain(..)).await?;
+        log::trace!("{}", s);
+        let adnl_str = &hex::encode_upper(&adnl)[..];
+
+        let (s, _) = self.proceed_command("addadnl", vec![adnl_str, "0"].drain(..)).await?;
+        log::trace!("{}", s);
+
+        let (s, _) = self.proceed_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].drain(..)).await?;
+        log::trace!("{}", s);
+
+        // validator-elect-req.fif
+        let mut data = 0x654C5074u32.to_be_bytes().to_vec();
+        data.extend_from_slice(&elect_time.to_be_bytes());
+        data.extend_from_slice(&max_factor.to_be_bytes());
+        data.extend_from_slice(&wallet_id);
+        data.extend_from_slice(&adnl);
+        log::trace!("data to sign {}", hex::encode_upper(&data));
+        let data_str = &hex::encode_upper(&data)[..];
+        let (s, signature) = self.proceed_command("sign", vec![perm_str, data_str].drain(..)).await?;
+        log::trace!("{}", s);
+        KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
+            .verify(&data, &signature)?;
+
+        // validator-elect-signed.fif
+        let mut data = 0x4E73744Bu32.to_be_bytes().to_vec();
+        data.extend_from_slice(&now.to_be_bytes());
+        data.extend_from_slice(&pub_key);
+        data.extend_from_slice(&elect_time.to_be_bytes());
+        data.extend_from_slice(&max_factor.to_be_bytes());
+        data.extend_from_slice(&adnl);
+        let len = data.len() * 8;
+        let mut body = BuilderData::with_raw(data, len)?;
+        let len = signature.len() * 8;
+        body.append_reference(BuilderData::with_raw(signature, len)?);
+        let body = body.into();
+        log::trace!("message body {}", body);
+        let data = ton_types::serialize_toc(&body)?;
+        let path = params.next().unwrap_or("validator-query.boc");
+        std::fs::write(path, &data)?;
+        Ok((format!("Message body is {}", path), data))
+    }
+
+    async fn proceed_test(&mut self) -> Result<(String, Vec<u8>)> {
+        let (s, adnl) = self.proceed_command("newkey", vec![].drain(..)).await?;
+        log::trace!("{}", s);
+        let key_hash = &hex::encode_upper(&adnl)[..];
+        let wallet_id = "kf-vF9tD9Atqok5yA6n4yGUjEMiMElBi0RKf6IPqob1nY2dP";
+        let election_date = "1567633899";
+        let max_factor = "2.7";
+        let (s, body) = self.proceed_election_bid(vec![wallet_id, election_date, max_factor, key_hash].drain(..)).await?;
+        log::trace!("{}", s);
+        Ok((format!("test result"), body))
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct AdnlConsoleConfigJson {
+    config: Option<AdnlClientConfigJson>,
+    wallet_id: Option<String>,
+    max_factor: Option<f32>
 }
 
 #[tokio::main]
@@ -281,46 +381,29 @@ async fn main() {
         env!("BUILD_GIT_DATE"),
         env!("BUILD_GIT_BRANCH")
     );
-    // init_test_log();
+    init_test_log();
     let args = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
         .arg(Arg::with_name("CONFIG")
-            .short("g")
+            .short("C")
             .long("config")
             .help("config for console")
-            .conflicts_with("ADDRESS")
-            .conflicts_with("PUBLIC")
-            .conflicts_with("KEY")
+            .required(true)
             .takes_value(true)
-            .number_of_values(1)
-            .required(true))
-        .arg(Arg::with_name("ADDRESS")
-            .short("a")
-            .long("address")
-            .help("server address")
-            .conflicts_with("CONFIG")
-            .takes_value(true)
-            .required(true))
-        .arg(Arg::with_name("PUBLIC")
-            .short("p")
-            .long("pub")
-            .help("server public key")
-            .conflicts_with("CONFIG")
-            .takes_value(true)
-            .required(true))
-        .arg(Arg::with_name("KEY")
-            .short("k")
-            .long("key")
-            .help("private key")
-            .conflicts_with("CONFIG")
-            .takes_value(true))
+            .number_of_values(1))
+        // .arg(Arg::with_name("ELECTION-BID")
+        //     .short("b")
+        //     .long("election-bid")
+        //     .help("prepare election bid")
+        //     .takes_value(true)
+        //     .number_of_values(2))
         .arg(Arg::with_name("COMMANDS")
             .short("c")
             .long("cmd")
             .help("schedule command")
+            .multiple(true)
             .takes_value(true)
-            .number_of_values(1)
-            .multiple(true))
+            .number_of_values(1))
         .arg(Arg::with_name("TIMEOUT")
             .short("t")
             .long("timeout")
@@ -329,35 +412,20 @@ async fn main() {
             .number_of_values(1))
         .get_matches();
 
-    let config = if let Some(config) = args.value_of("CONFIG") {
-        std::fs::read_to_string(config).unwrap()
-    } else {
-        let mut map = serde_json::Map::new();
-        map.insert("server_address".to_string(), args.value_of("ADDRESS").expect("required set for address").into());
-        map.insert("server_key".to_string(), serde_json::json!({
-            "type_id": 1209251014,
-            "pub_key": std::fs::read_to_string(args.value_of("PUBLIC").expect("required set for public key")).unwrap()
-        }).into());
-        if let Some(client_key) = args.value_of("KEY") {
-            map.insert("client_key".to_string(), serde_json::json!({
-                "type_id": 1209251014,
-                "pvt_key": std::fs::read_to_string(client_key).unwrap()
-            }).into());
-        }
-        serde_json::json!(map).to_string()
-    };
-    let config = AdnlClientConfig::from_json(&config).unwrap();
+    let config = args.value_of("CONFIG").expect("required set for config");
+    let config = serde_json::from_str(&std::fs::read_to_string(config).unwrap()).unwrap();
     let timeout = match args.value_of("TIMEOUT") {
         Some(timeout) => u64::from_str(timeout).expect("timeout must be set in microseconds"),
         None => 0
     };
     let timeout = std::time::Duration::from_micros(timeout);
-    let mut client = ControlClient::connect(&config).await.unwrap();
+    let mut client = ControlClient::connect(config).await.unwrap();
     if let Some(commands) = args.values_of("COMMANDS") {
         // batch mode - call commands and exit
         for command in commands {
-            if let Err(err) = client.command(command.trim_matches('\"')).await {
-                println!("Error executing comamnd: {}", err);
+            match client.command(command.trim_matches('\"')).await {
+                Ok((result, _)) => println!("{}", result),
+                Err(err) => println!("Error executing comamnd: {}", err)
             }
             tokio::time::delay_for(timeout).await;
         }
@@ -368,13 +436,12 @@ async fn main() {
             std::io::stdin().read_line(&mut line).unwrap();
             match line.trim_end() {
                 "quit" => break,
-                command => {
-                    if let Err(err) = client.command(command).await {
-                        println!("{}", err)
-                    }
+                command => match client.command(command).await {
+                    Ok((result, _)) => println!("{}", result),
+                    Err(err) => println!("{}", err)
                 }
             }
         }
     }
-    client.shutdown().await.unwrap();
+    client.shutdown().await.ok();
 }
