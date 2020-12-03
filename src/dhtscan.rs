@@ -1,16 +1,16 @@
 use adnl::{common::KeyOption, node::{AdnlNode, AdnlNodeConfig}};
 use dht::DhtNode;
 use overlay::OverlayNode;
-use std::{env, ops::Deref};
+use std::{collections::HashMap, env, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
 
 include!("../common/src/log.rs");
 
-const IP: &str = "0.0.0.0:4900";
+const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
 
-fn scan(config: &str, jsonl: bool) -> Result<()> {
+fn scan(config: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) -> Result<()> {
 
     let config = TonNodeGlobalConfigJson::from_json_file(config).map_err(
         |e| error!("Cannot read config from file {}: {}", config, e) 
@@ -32,7 +32,7 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
         zero_state.as_slice(), 
         KEY_TAG
     )?;
-    let overlay_id = overlay.calc_overlay_short_id(-1, 0x8000000000000000u64 as i64)?;
+
     rt.block_on(AdnlNode::start(&adnl, vec![dht.clone(), overlay.clone()]))?;
 
     let mut preset_nodes = Vec::new();
@@ -49,17 +49,14 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
         rt.block_on(dht.find_dht_nodes(node))?;
     }
 
-    let mut iter = None;
-    loop {
-        let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
-        println!(
-            "Found {} new nodes, searching more...", 
-            dht.get_known_nodes(5000)?.len() - dht_nodes.len()
-        );
-        if res.is_empty() {
-            break;
-        }
+    scan_overlay(&mut rt, &dht, preset_nodes.len(), &overlay, search_overlay, -1)?;
+    if use_workchain0 {
+        scan_overlay(&mut rt, &dht, preset_nodes.len(), &overlay, search_overlay, 0)?;
     }
+    if search_overlay {
+        return Ok(())
+    }
+
     let mut count = 0;
     let nodes = dht.get_known_nodes(5000)?;
     if nodes.len() > dht_nodes.len() {
@@ -121,14 +118,68 @@ fn scan(config: &str, jsonl: bool) -> Result<()> {
         println!("---- No DHT nodes found");
     }
     Ok(())
-} 
+
+}
+
+fn scan_overlay(
+    rt: &mut tokio::runtime::Runtime,
+    dht: &Arc<DhtNode>,
+    dht_presets: usize,
+    overlay: &Arc<OverlayNode>,
+    search_overlay: bool, 
+    workchain: i32
+) -> Result<()> {
+
+    let overlay_id = overlay.calc_overlay_short_id(workchain, 0x8000000000000000u64 as i64)?;
+
+    let mut iter = None;
+    let mut overlays = HashMap::new();
+    loop {
+        let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
+        let count = overlays.len();
+        for (ip, node) in res {
+            let key = KeyOption::from_tl_public_key(&node.id)?;
+            overlays.insert(key.id().clone(), (ip, node));
+        }
+        if search_overlay {
+            println!(
+                "Found {} new OVERLAY nodes in {}({}), searching more...", 
+                overlays.len() - count, overlay_id, workchain
+            )
+        } else {
+            println!(
+                "Found {} new DHT nodes, searching more...", 
+                dht.get_known_nodes(5000)?.len() - dht_presets
+            )
+        }
+        if iter.is_none() {
+            break;
+        }
+    }
+
+    if search_overlay {
+        println!("---- Found OVERLAY nodes in {}({}):", overlay_id, workchain);
+        for (ip, node) in overlays.iter() {
+            println!("IP {}: {:?}", ip, node)
+        }
+        println!("---- Found {} OVERLAY nodes totally", overlays.len());
+    }
+    Ok(())
+
+}
 
 fn main() {
     let mut config = None;
     let mut jsonl = false;
+    let mut overlay = false;
+    let mut workchain0 = false;
     for arg in env::args().skip(1) {
         if arg == "--jsonl" {
             jsonl = true
+        } else if arg == "--overlay" {
+            overlay = true
+        } else if arg == "--workchain0" {
+            workchain0 = true
         } else {
             config = Some(arg)
         }
@@ -136,9 +187,11 @@ fn main() {
     let config = if let Some(config) = config {
         config
     } else {
-        println!("Usage: dhtscan [--jsonl] <path-to-global-config>");
+        println!("Usage: dhtscan [--jsonl] [--overlay] [--workchain0] <path-to-global-config>");
         return
     };
     init_test_log();
-    scan(&config, jsonl).unwrap_or_else(|e| println!("DHT scanning error: {}", e))
+    scan(&config, jsonl, overlay, workchain0).unwrap_or_else(
+        |e| println!("DHT scanning error: {}", e)
+    )
 }
