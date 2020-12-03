@@ -255,13 +255,13 @@ impl ControlClient {
     async fn command(&mut self, cmd: &str) -> Result<(String, Vec<u8>)> {
         let mut params = cmd.split_whitespace();
         match params.next().expect("takes_value set for COMMANDS") {
-            "test" => self.proceed_test().await,
-            "election-bid" => self.proceed_election_bid(params).await,
-            name => self.proceed_command(name, params).await
+            "test" => self.process_test().await,
+            "election-bid" => self.process_election_bid(params).await,
+            name => self.process_command(name, params).await
         }
     }
 
-    async fn proceed_command<'a>(&mut self, name: &str, params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
+    async fn process_command<'a>(&mut self, name: &str, params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
         let query = command_send(name, params)?;
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
@@ -277,7 +277,7 @@ impl ControlClient {
         }
     }
 
-    async fn proceed_election_bid<'a>(&mut self, mut params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
+    async fn process_election_bid<'a>(&mut self, mut params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int;
         let wallet_id = parse_int256(self.config.wallet_id.as_ref(), "wallet_id")?;
         let elect_time = parse_int(params.next(), "elect_time")?;
@@ -296,27 +296,27 @@ impl ControlClient {
         }
         let max_factor = (max_factor * 65536.0) as u32;
 
-        let (s, perm) = self.proceed_command("newkey", vec![].drain(..)).await?;
+        let (s, perm) = self.process_command("newkey", vec![].drain(..)).await?;
         log::trace!("{}", s);
         let perm_str = &hex::encode_upper(&perm)[..];
 
-        let (s, pub_key) = self.proceed_command("exportpub", vec![perm_str].drain(..)).await?;
+        let (s, pub_key) = self.process_command("exportpub", vec![perm_str].drain(..)).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.proceed_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].drain(..)).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.proceed_command("addtempkey", vec![perm_str, perm_str, expire_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addtempkey", vec![perm_str, perm_str, expire_time_str].drain(..)).await?;
         log::trace!("{}", s);
 
-        let (s, adnl) = self.proceed_command("newkey", vec![].drain(..)).await?;
+        let (s, adnl) = self.process_command("newkey", vec![].drain(..)).await?;
         log::trace!("{}", s);
         let adnl_str = &hex::encode_upper(&adnl)[..];
 
-        let (s, _) = self.proceed_command("addadnl", vec![adnl_str, "0"].drain(..)).await?;
+        let (s, _) = self.process_command("addadnl", vec![adnl_str, "0"].drain(..)).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.proceed_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].drain(..)).await?;
         log::trace!("{}", s);
 
         // validator-elect-req.fif
@@ -327,7 +327,7 @@ impl ControlClient {
         data.extend_from_slice(&adnl);
         log::trace!("data to sign {}", hex::encode_upper(&data));
         let data_str = &hex::encode_upper(&data)[..];
-        let (s, signature) = self.proceed_command("sign", vec![perm_str, data_str].drain(..)).await?;
+        let (s, signature) = self.process_command("sign", vec![perm_str, data_str].drain(..)).await?;
         log::trace!("{}", s);
         KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
             .verify(&data, &signature)?;
@@ -351,14 +351,14 @@ impl ControlClient {
         Ok((format!("Message body is {}", path), data))
     }
 
-    async fn proceed_test(&mut self) -> Result<(String, Vec<u8>)> {
-        let (s, adnl) = self.proceed_command("newkey", vec![].drain(..)).await?;
+    async fn process_test(&mut self) -> Result<(String, Vec<u8>)> {
+        let (s, adnl) = self.process_command("newkey", vec![].drain(..)).await?;
         log::trace!("{}", s);
         let key_hash = &hex::encode_upper(&adnl)[..];
         let wallet_id = "kf-vF9tD9Atqok5yA6n4yGUjEMiMElBi0RKf6IPqob1nY2dP";
         let election_date = "1567633899";
         let max_factor = "2.7";
-        let (s, body) = self.proceed_election_bid(vec![wallet_id, election_date, max_factor, key_hash].drain(..)).await?;
+        let (s, body) = self.process_election_bid(vec![wallet_id, election_date, max_factor, key_hash].drain(..)).await?;
         log::trace!("{}", s);
         Ok((format!("test result"), body))
     }
