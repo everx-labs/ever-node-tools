@@ -1,17 +1,18 @@
 use adnl::common::{KeyOption, serialize};
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
-use ton_api::{
-    ton::{
-        self, TLObject, 
-        engine::validator::ControlQueryError,
-        rpc::engine::validator::ControlQuery,
-    }
+use ton_api::ton::{
+    self, TLObject, 
+    engine::validator::ControlQueryError,
+    rpc::engine::validator::ControlQuery,
 };
 use ton_types::{error, fail, Result, BuilderData};
 use clap::{Arg, App};
-use std::convert::TryInto;
-use std::env;
-use std::str::FromStr;
+use std::{
+    convert::TryInto,
+    env,
+    str::FromStr,
+    time::Duration,
+};
 
 include!("../../common/src/log.rs");
 
@@ -102,39 +103,8 @@ fn parse_int<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::int
     parse_any(param_opt, name, |value| Ok(ton::int::from_str(value)?))
 }
 
-#[cfg(test)]
-fn parse_test<A>(parse: impl FnOnce(Option<&str>, &str) -> Result<A>, param: &str) -> Result<A> {
-    parse(param.split_whitespace().next(), "test")
-}
-
-#[test]
-fn test_parse_int() {
-    assert_eq!(parse_test(parse_int, "0").unwrap(), 0);
-    assert_eq!(parse_test(parse_int, "-1").unwrap(), -1);
-    assert_eq!(parse_test(parse_int, "1600000000").unwrap(), 1600000000);
-
-    parse_test(parse_int, "qwe").expect_err("must generate error");
-    parse_int(None, "test").expect_err("must generate error");
-}
-
-#[test]
-fn test_parse_int256() {
-    let ethalon = ton::int256(base64::decode("GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap().as_slice().try_into().unwrap());
-    assert_eq!(parse_test(parse_int256, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap(), ethalon);
-    assert_eq!(parse_test(parse_int256, "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F").unwrap(), ethalon);
-
-    parse_test(parse_int256, "11").expect_err("must generate error");
-    parse_int256(None, "test").expect_err("must generate error");
-}
-
-#[test]
-fn test_parse_data() {
-    let ethalon = ton::bytes(vec![10, 77]);
-    assert_eq!(parse_test(parse_data, "0A4D").unwrap(), ethalon);
-
-    parse_test(parse_data, "QQ").expect_err("must generate error");
-    parse_test(parse_data, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").expect_err("must generate error");
-    parse_data(None, "test").expect_err("must generate error");
+fn now() -> ton::int {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
 }
 
 impl SendReceive for NewKeypair {
@@ -190,10 +160,9 @@ impl SendReceive for AddValidatorPermKey {
 
 impl SendReceive for AddValidatorTempKey {
     fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int;
         let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
         let key_hash = parse_int256(params.next(), "key_hash")?;
-        let ttl = parse_int(params.next(), "expire_at")? - now;
+        let ttl = parse_int(params.next(), "expire_at")? - now();
         Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorTempKey {
             permanent_key_hash,
             key_hash,
@@ -204,10 +173,9 @@ impl SendReceive for AddValidatorTempKey {
 
 impl SendReceive for AddValidatorAdnlAddr {
     fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int;
         let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
         let key_hash = parse_int256(params.next(), "key_hash")?;
-        let ttl = parse_int(params.next(), "expire_at")? - now;
+        let ttl = parse_int(params.next(), "expire_at")? - now();
         Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorAdnlAddress {
             permanent_key_hash,
             key_hash,
@@ -278,7 +246,6 @@ impl ControlClient {
     }
 
     async fn process_election_bid<'a>(&mut self, mut params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int;
         let wallet_id = parse_int256(self.config.wallet_id.as_ref(), "wallet_id")?;
         let elect_time = parse_int(params.next(), "elect_time")?;
         if elect_time <= 0 {
@@ -334,7 +301,7 @@ impl ControlClient {
 
         // validator-elect-signed.fif
         let mut data = 0x4E73744Bu32.to_be_bytes().to_vec();
-        data.extend_from_slice(&now.to_be_bytes());
+        data.extend_from_slice(&now().to_be_bytes());
         data.extend_from_slice(&pub_key);
         data.extend_from_slice(&elect_time.to_be_bytes());
         data.extend_from_slice(&max_factor.to_be_bytes());
@@ -418,7 +385,7 @@ async fn main() {
         Some(timeout) => u64::from_str(timeout).expect("timeout must be set in microseconds"),
         None => 0
     };
-    let timeout = std::time::Duration::from_micros(timeout);
+    let timeout = Duration::from_micros(timeout);
     let mut client = ControlClient::connect(config).await.unwrap();
     if let Some(commands) = args.values_of("COMMANDS") {
         // batch mode - call commands and exit
@@ -444,4 +411,97 @@ async fn main() {
         }
     }
     client.shutdown().await.ok();
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use ton_node::LightEngine;
+
+    const ADNL_SERVER_CONFIG: &str = r#"{
+        "control_server": {
+            "address": "127.0.0.1:4924",
+            "server_key": {
+                "type_id": 1209251014,
+                "pvt_key": "cJIxGZviebMQWL726DRejqVzRTSXPv/1sO/ab6XOZXk="
+            },
+            "clients": {
+                "list": [
+                    {
+                        "type_id": 1209251014,
+                        "pub_key": "RYokIiD5AFkzfTBgC6NhtAGFKm0+gwhN4suTzaW0Sjw="
+                    }
+                ]
+            }
+        }
+    }"#;
+
+    const ADNL_CLIENT_CONFIG: &str = r#"{
+        "config": {
+            "server_address": "127.0.0.1:4924",
+            "server_key": {
+                "type_id": 1209251014,
+                "pub_key": "cujCRU4rQbSw48yHVHxQtRPhUlbo+BuZggFTQSu04Y8="
+            },
+            "client_key": {
+                "type_id": 1209251014,
+                "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
+            }
+        },
+        "wallet_id": "af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
+        "max_factor": 2.7
+    }"#;
+
+    #[tokio::test]
+    async fn test_election_bid() {
+        init_test_log();
+        std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
+        let server = LightEngine::with_config("light_node.json").await.unwrap();
+        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
+        let mut client = ControlClient::connect(config).await.unwrap();
+
+        let (_, result) = client.command("newkey").await.unwrap();
+        assert_eq!(result.len(), 32);
+        let now = now() + 86400;
+        let (_, result) = client.command(&format!("election-bid {} {} target/validator-query.boc", now, now + 10001)).await.unwrap();
+        assert_eq!(result.len(), 160);
+
+        client.shutdown().await.ok();
+        server.shutdown();
+    }
+
+    macro_rules! parse_test {
+        ($func:expr, $param:expr) => {
+            $func($param.split_whitespace().next(), "test")
+        };
+    }
+    #[test]
+    fn test_parse_int() {
+        assert_eq!(parse_test!(parse_int, "0").unwrap(), 0);
+        assert_eq!(parse_test!(parse_int, "-1").unwrap(), -1);
+        assert_eq!(parse_test!(parse_int, "1600000000").unwrap(), 1600000000);
+
+        parse_test!(parse_int, "qwe").expect_err("must generate error");
+        parse_int(Option::<&str>::None, "test").expect_err("must generate error");
+    }
+
+    #[test]
+    fn test_parse_int256() {
+        let ethalon = ton::int256(base64::decode("GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap().as_slice().try_into().unwrap());
+        assert_eq!(parse_test!(parse_int256, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap(), ethalon);
+        assert_eq!(parse_test!(parse_int256, "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F").unwrap(), ethalon);
+
+        parse_test!(parse_int256, "11").expect_err("must generate error");
+        parse_int256(Option::<&str>::None, "test").expect_err("must generate error");
+    }
+
+    #[test]
+    fn test_parse_data() {
+        let ethalon = ton::bytes(vec![10, 77]);
+        assert_eq!(parse_test!(parse_data, "0A4D").unwrap(), ethalon);
+
+        parse_test!(parse_data, "QQ").expect_err("must generate error");
+        parse_test!(parse_data, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").expect_err("must generate error");
+        parse_data(Option::<&str>::None, "test").expect_err("must generate error");
+    }
 }
