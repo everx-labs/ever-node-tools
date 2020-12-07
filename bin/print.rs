@@ -15,7 +15,7 @@ async fn print_block(db: &InternalDbImpl, block_id: BlockIdExt) -> Result<()> {
 async fn print_state(db: &InternalDbImpl, block_id: BlockIdExt) -> Result<()> {
     println!("loading state: {}", block_id);
     let state = db.load_shard_state_dynamic(&block_id)?;
-    println!("{}", ton_block_json::debug_state(state.state().clone())?);
+    println!("{}", ton_block_json::debug_state(state.shard_state().clone())?);
     Ok(())
 }
 
