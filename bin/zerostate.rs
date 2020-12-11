@@ -1,6 +1,6 @@
 use clap::{Arg, App};
 use serde_json::{Map, Value};
-use ton_block::{ShardStateUnsplit, Serializable, ShardIdent};
+use ton_block::{Serializable, ShardIdent, ShardStateUnsplit, UnixTime32};
 use ton_types::{serialize_toc, Result, UInt256};
 
 fn import_zerostate(json: &str) -> Result<()> {
@@ -30,7 +30,19 @@ fn import_zerostate(json: &str) -> Result<()> {
         wc_zero_state.push(state);
         Ok(true)
     })?;
-    extra.config.config_params.set(12u32.serialize()?.into(), &wc_info.serialize()?.into())?;
+    extra.config.config_params.setref(12u32.serialize()?.into(), &wc_info.serialize()?)?;
+    let ccvc = extra.config.catchain_config()?;
+    let cur_validators = extra.config.validator_set()?;
+    let (_validators, hash_short) = cur_validators.calc_subset(
+        &ccvc, 
+        ton_block::SHARD_FULL, 
+        ton_block::MASTERCHAIN_ID, 
+        0,
+        UnixTime32(now)
+    )?;
+    extra.validator_info.validator_list_hash_short = hash_short;
+    extra.validator_info.nx_cc_updated = true;
+    extra.validator_info.catchain_seqno = 0;
     mc_zero_state.write_custom(Some(&extra))?;
     let cell = mc_zero_state.serialize().unwrap();
     let bytes = serialize_toc(&cell).unwrap();
@@ -49,6 +61,10 @@ fn import_zerostate(json: &str) -> Result<()> {
     let json = serde_json::to_string_pretty(&json)?;
     std::fs::write("config.json", &json)?;
     println!("{}", json);
+
+    // check correctness
+    ton_block_json::debug_state(mc_zero_state).unwrap();
+    // std::fs::write("new.json", ton_block_json::debug_state(mc_zero_state)?)?;
 
     Ok(())
 }
