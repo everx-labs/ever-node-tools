@@ -1,7 +1,7 @@
 use clap::{Arg, App};
 use serde_json::{Map, Value};
-use ton_block::{Serializable, ShardIdent, ShardStateUnsplit, UnixTime32};
-use ton_types::{serialize_toc, Result, UInt256};
+use ton_block::{Deserializable, Serializable, ShardIdent, ShardStateUnsplit, UnixTime32};
+use ton_types::{serialize_toc, Result, UInt256, HashmapType};
 
 fn import_zerostate(json: &str) -> Result<()> {
     let map = serde_json::from_str::<Map<String, Value>>(&json)?;
@@ -48,6 +48,19 @@ fn import_zerostate(json: &str) -> Result<()> {
     let bytes = serialize_toc(&cell).unwrap();
     std::fs::write("zerostate.boc", &bytes).unwrap();
 
+    // CHECK mc_zero_state
+    let mc_zero_state = ShardStateUnsplit::construct_from_bytes(&bytes).expect("can't deserialize state");
+    let extra = mc_zero_state.read_custom().expect("extra wasn't read from state").expect("extra must be in state");
+    extra.config.config_params.iterate_slices(|ref mut key, ref mut param| {
+        u32::construct_from(key).expect("index wasn't deserialized incorrectly");
+        param.checked_drain_reference().expect("must contain reference");
+        Ok(true)
+    }).expect("somthing wrong with config");
+    let prices = extra.config.storage_prices().expect("prices weren't read from config");
+    for i in 0..prices.len().expect("prices len wasn't read") as u32 {
+        prices.get(i).expect(&format!("prices description {} wasn't read", i));
+    }
+
     let json = serde_json::json!({
         "zero_state": {
             "workchain": -1,
@@ -63,7 +76,6 @@ fn import_zerostate(json: &str) -> Result<()> {
     println!("{}", json);
 
     // check correctness
-    ton_block_json::debug_state(mc_zero_state).unwrap();
     // std::fs::write("new.json", ton_block_json::debug_state(mc_zero_state)?)?;
 
     Ok(())
