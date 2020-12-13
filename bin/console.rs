@@ -255,7 +255,6 @@ impl ControlClient {
         let result = shell_words::split(cmd)?;
         let mut params = result.iter();
         match &params.next().expect("takes_value set for COMMANDS")[..] {
-            "test" => self.process_test().await,
             "ebid" |
             "election-bid" |
             "election_bid" => self.process_election_bid(params).await,
@@ -350,18 +349,6 @@ impl ControlClient {
         let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {}", path), data))
-    }
-
-    async fn process_test(&mut self) -> Result<(String, Vec<u8>)> {
-        let (s, adnl) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
-        log::trace!("{}", s);
-        let key_hash = &hex::encode_upper(&adnl)[..];
-        let wallet_id = "kf-vF9tD9Atqok5yA6n4yGUjEMiMElBi0RKf6IPqob1nY2dP";
-        let election_date = "1567633899";
-        let max_factor = "2.7";
-        let (s, body) = self.process_election_bid(vec![wallet_id, election_date, max_factor, key_hash].drain(..)).await?;
-        log::trace!("{}", s);
-        Ok((format!("test result"), body))
     }
 }
 
