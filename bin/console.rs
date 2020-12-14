@@ -1,12 +1,13 @@
 use adnl::common::{KeyOption, serialize};
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
+use clap::{Arg, App};
 use ton_api::ton::{
     self, TLObject, 
     engine::validator::ControlQueryError,
     rpc::engine::validator::ControlQuery,
 };
+use ton_block::BlockIdExt;
 use ton_types::{error, fail, Result, BuilderData};
-use clap::{Arg, App};
 use std::{
     convert::TryInto,
     env,
@@ -14,10 +15,10 @@ use std::{
     time::Duration,
 };
 
-include!("../../common/src/log.rs");
+include!("../../common/src/test.rs");
 
 trait SendReceive {
-    fn send<'a>(params: impl Iterator<Item = &'a str>) -> Result<TLObject>;
+    fn send<Q: ToString>(params: impl Iterator<Item = Q>) -> Result<TLObject>;
     fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
         answer.downcast::<ton_api::ton::engine::validator::Success>()?;
         Ok(("success".to_string(), vec![]))
@@ -44,7 +45,7 @@ macro_rules! commands {
                 _ => fail!("command {} not supported", name)
             }
         }
-        fn command_send<'a>(name: &str, params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+        fn command_send<Q: ToString>(name: &str, params: impl Iterator<Item = Q>) -> Result<TLObject> {
             match name {
                 $($name => $command::send(params), )*
                 _ => fail!("command {} not supported", name)
@@ -67,16 +68,18 @@ commands! {
     AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
     AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
+    Bundle, "bundle", "bundle <block_id>\tprepare bundle"
+    FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
 }
 
-fn parse_any<A, T: AsRef<str>>(param_opt: Option<T>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
+fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
     param_opt
         .ok_or_else(|| error!("insufficient parameters"))
-        .and_then(|value| parse_value(value.as_ref()))
-        .map_err(|_| error!("you must give {}", name))
+        .and_then(|value| parse_value(value.to_string().trim_matches('\"')))
+        .map_err(|err| error!("you must give {}: {}", name, err))
 }
 
-fn parse_data<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::bytes> {
+fn parse_data<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::bytes> {
     parse_any(
         param_opt,
         &format!("{} in hex format", name),
@@ -84,7 +87,7 @@ fn parse_data<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::by
     )
 }
 
-fn parse_int256<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::int256> {
+fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int256> {
     parse_any(
         param_opt,
         &format!("{} in hex or base64 format", name),
@@ -99,8 +102,15 @@ fn parse_int256<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::
     )
 }
 
-fn parse_int<T: AsRef<str>>(param_opt: Option<T>, name: &str) -> Result<ton::int> {
+fn parse_int<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int> {
     parse_any(param_opt, name, |value| Ok(ton::int::from_str(value)?))
+}
+
+fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton_api::ton::ton_node::blockidext::BlockIdExt> {
+    parse_any(param_opt, name, |value| {
+        let block_id = BlockIdExt::from_str(value)?;
+        Ok(ton_node::block::convert_block_id_ext_blk2api(&block_id))
+    })
 }
 
 fn now() -> ton::int {
@@ -108,7 +118,7 @@ fn now() -> ton::int {
 }
 
 impl SendReceive for NewKeypair {
-    fn send<'a>(_params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair))
     }
     fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
@@ -118,7 +128,7 @@ impl SendReceive for NewKeypair {
 }
 
 impl SendReceive for ExportPub {
-    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let key_hash = parse_int256(params.next(), "key_hash")?;
         Ok(TLObject::new(ton::rpc::engine::validator::ExportPublicKey {
             key_hash
@@ -131,7 +141,7 @@ impl SendReceive for ExportPub {
 }
 
 impl SendReceive for Sign {
-    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let key_hash = parse_int256(params.next(), "key_hash")?;
         let data = parse_data(params.next(), "data")?;
         Ok(TLObject::new(ton::rpc::engine::validator::Sign {
@@ -146,7 +156,7 @@ impl SendReceive for Sign {
 }
 
 impl SendReceive for AddValidatorPermKey {
-    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let key_hash =  parse_int256(params.next(), "key_hash")?;
         let election_date = parse_int(params.next(), "election_date")?;
         let ttl = parse_int(params.next(), "expire_at")? - election_date;
@@ -159,7 +169,7 @@ impl SendReceive for AddValidatorPermKey {
 }
 
 impl SendReceive for AddValidatorTempKey {
-    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
         let key_hash = parse_int256(params.next(), "key_hash")?;
         let ttl = parse_int(params.next(), "expire_at")? - now();
@@ -172,7 +182,7 @@ impl SendReceive for AddValidatorTempKey {
 }
 
 impl SendReceive for AddValidatorAdnlAddr {
-    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
         let key_hash = parse_int256(params.next(), "key_hash")?;
         let ttl = parse_int(params.next(), "expire_at")? - now();
@@ -185,7 +195,7 @@ impl SendReceive for AddValidatorAdnlAddr {
 }
 
 impl SendReceive for AddAdnlAddr {
-    fn send<'a>(mut params: impl Iterator<Item = &'a str>) -> Result<TLObject> {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let key_hash = parse_int256(params.next(), "key_hash")?;
         let category = parse_int(params.next(), "category")?;
         if category < 0 || category > 15 {
@@ -194,6 +204,27 @@ impl SendReceive for AddAdnlAddr {
         Ok(TLObject::new(ton::rpc::engine::validator::AddAdnlId {
             key_hash,
             category
+        }))
+    }
+}
+
+impl SendReceive for Bundle {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let block_id = parse_blockid(params.next(), "block_id")?;
+        Ok(TLObject::new(ton::rpc::engine::validator::GetBundle {
+            block_id
+        }))
+    }
+}
+
+impl SendReceive for FutureBundle {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let mut prev_block_ids = vec![parse_blockid(params.next(), "block_id")?];
+        if let Ok(block_id) = parse_blockid(params.next(), "block_id") {
+            prev_block_ids.push(block_id);
+        }
+        Ok(TLObject::new(ton::rpc::engine::validator::GetFutureBundle {
+            prev_block_ids: prev_block_ids.into()
         }))
     }
 }
@@ -221,15 +252,17 @@ impl ControlClient {
     }
 
     async fn command(&mut self, cmd: &str) -> Result<(String, Vec<u8>)> {
-        let mut params = cmd.split_whitespace();
-        match params.next().expect("takes_value set for COMMANDS") {
-            "test" => self.process_test().await,
-            "election-bid" => self.process_election_bid(params).await,
+        let result = shell_words::split(cmd)?;
+        let mut params = result.iter();
+        match &params.next().expect("takes_value set for COMMANDS")[..] {
+            "ebid" |
+            "election-bid" |
+            "election_bid" => self.process_election_bid(params).await,
             name => self.process_command(name, params).await
         }
     }
 
-    async fn process_command<'a>(&mut self, name: &str, params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
+    async fn process_command<Q: ToString>(&mut self, name: &str, params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
         let query = command_send(name, params)?;
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
@@ -245,8 +278,13 @@ impl ControlClient {
         }
     }
 
-    async fn process_election_bid<'a>(&mut self, mut params: impl Iterator<Item = &'a str>) -> Result<(String, Vec<u8>)> {
-        let wallet_id = parse_int256(self.config.wallet_id.as_ref(), "wallet_id")?;
+    async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
+        let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
+            if !value.starts_with("-1:") {
+                fail!("use masterchain wallet")
+            }
+            Ok(hex::decode(&value[3..])?)
+        })?;
         let elect_time = parse_int(params.next(), "elect_time")?;
         if elect_time <= 0 {
             fail!("<elect-utime> must be a positive integer")
@@ -263,7 +301,7 @@ impl ControlClient {
         }
         let max_factor = (max_factor * 65536.0) as u32;
 
-        let (s, perm) = self.process_command("newkey", vec![].drain(..)).await?;
+        let (s, perm) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
         log::trace!("{}", s);
         let perm_str = &hex::encode_upper(&perm)[..];
 
@@ -276,7 +314,7 @@ impl ControlClient {
         let (s, _) = self.process_command("addtempkey", vec![perm_str, perm_str, expire_time_str].drain(..)).await?;
         log::trace!("{}", s);
 
-        let (s, adnl) = self.process_command("newkey", vec![].drain(..)).await?;
+        let (s, adnl) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
         log::trace!("{}", s);
         let adnl_str = &hex::encode_upper(&adnl)[..];
 
@@ -313,21 +351,9 @@ impl ControlClient {
         let body = body.into();
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
-        let path = params.next().unwrap_or("validator-query.boc");
-        std::fs::write(path, &data)?;
+        let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
+        std::fs::write(&path, &data)?;
         Ok((format!("Message body is {}", path), data))
-    }
-
-    async fn process_test(&mut self) -> Result<(String, Vec<u8>)> {
-        let (s, adnl) = self.process_command("newkey", vec![].drain(..)).await?;
-        log::trace!("{}", s);
-        let key_hash = &hex::encode_upper(&adnl)[..];
-        let wallet_id = "kf-vF9tD9Atqok5yA6n4yGUjEMiMElBi0RKf6IPqob1nY2dP";
-        let election_date = "1567633899";
-        let max_factor = "2.7";
-        let (s, body) = self.process_election_bid(vec![wallet_id, election_date, max_factor, key_hash].drain(..)).await?;
-        log::trace!("{}", s);
-        Ok((format!("test result"), body))
     }
 }
 
@@ -358,12 +384,6 @@ async fn main() {
             .required(true)
             .takes_value(true)
             .number_of_values(1))
-        // .arg(Arg::with_name("ELECTION-BID")
-        //     .short("b")
-        //     .long("election-bid")
-        //     .help("prepare election bid")
-        //     .takes_value(true)
-        //     .number_of_values(2))
         .arg(Arg::with_name("COMMANDS")
             .short("c")
             .long("cmd")
@@ -416,8 +436,35 @@ async fn main() {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ton_node::LightEngine;
+    use std::sync::Arc;
+    use ton_node::{
+        config::{NodeConfigHandler, TonNodeConfig},
+        network::control::ControlServer,
+    };
+    use ton_types::Result;
 
+    pub struct Engine {
+        _config_handler: Arc<NodeConfigHandler>,
+        control: ControlServer
+    }
+
+    impl Engine {
+        pub async fn with_config(node_config_path: &str) -> Result<Self> {
+            let node_config = TonNodeConfig::from_file("target", node_config_path, None, "")?;
+            let control_server_config = node_config.control_server();
+            let config_handler = Arc::new(NodeConfigHandler::new(node_config)?);
+            let config = control_server_config.expect("must have control server setting");
+            let control = ControlServer::with_config(config, None, config_handler.clone(), config_handler.clone()).await?;
+
+            Ok(Self {
+                _config_handler: config_handler,
+                control
+            })
+        }
+        pub fn shutdown(self) {
+            self.control.shutdown()
+        }
+    }
     const ADNL_SERVER_CONFIG: &str = r#"{
         "control_server": {
             "address": "127.0.0.1:4924",
@@ -448,7 +495,7 @@ mod test {
                 "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
             }
         },
-        "wallet_id": "af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
+        "wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
         "max_factor": 2.7
     }"#;
 
@@ -456,7 +503,7 @@ mod test {
     async fn test_election_bid() {
         init_test_log();
         std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
-        let server = LightEngine::with_config("light_node.json").await.unwrap();
+        let server = Engine::with_config("light_node.json").await.unwrap();
         let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
         let mut client = ControlClient::connect(config).await.unwrap();
 
