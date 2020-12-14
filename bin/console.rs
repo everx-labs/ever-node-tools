@@ -279,7 +279,12 @@ impl ControlClient {
     }
 
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
-        let wallet_id = parse_int256(self.config.wallet_id.as_ref(), "wallet_id")?;
+        let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
+            if !value.starts_with("-1:") {
+                fail!("use masterchain wallet")
+            }
+            Ok(hex::decode(&value[3..])?)
+        })?;
         let elect_time = parse_int(params.next(), "elect_time")?;
         if elect_time <= 0 {
             fail!("<elect-utime> must be a positive integer")
@@ -490,7 +495,7 @@ mod test {
                 "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
             }
         },
-        "wallet_id": "af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
+        "wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
         "max_factor": 2.7
     }"#;
 
