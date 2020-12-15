@@ -25,7 +25,7 @@ fn import_zerostate(json: &str) -> Result<()> {
         let bytes = ton_types::serialize_toc(&cell)?;
         descr.zerostate_file_hash = UInt256::calc_file_hash(&bytes);
         wc_info.set(&workchain_id, &descr)?;
-        let name = format!("basestate{}.boc", workchain_id);
+        let name = format!("{:x}.boc", descr.zerostate_file_hash);
         std::fs::write(name, &bytes)?;
         wc_zero_state.push(state);
         Ok(true)
@@ -46,7 +46,9 @@ fn import_zerostate(json: &str) -> Result<()> {
     mc_zero_state.write_custom(Some(&extra))?;
     let cell = mc_zero_state.serialize().unwrap();
     let bytes = serialize_toc(&cell).unwrap();
-    std::fs::write("zerostate.boc", &bytes).unwrap();
+    let file_hash = UInt256::calc_file_hash(&bytes);
+    let name = format!("{:x}.boc", file_hash);
+    std::fs::write(name, &bytes).unwrap();
 
     // CHECK mc_zero_state
     let mc_zero_state = ShardStateUnsplit::construct_from_bytes(&bytes).expect("can't deserialize state");
@@ -67,7 +69,7 @@ fn import_zerostate(json: &str) -> Result<()> {
             "shard": -9223372036854775808i64,
             "seqno": 0,
             "root_hash": base64::encode(cell.repr_hash().as_slice()),
-            "file_hash": base64::encode(UInt256::calc_file_hash(&bytes).as_slice()),
+            "file_hash": base64::encode(&file_hash.as_slice()),
         }
     });
 
