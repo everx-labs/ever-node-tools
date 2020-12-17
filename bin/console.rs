@@ -255,6 +255,7 @@ impl ControlClient {
         let result = shell_words::split(cmd)?;
         let mut params = result.iter();
         match &params.next().expect("takes_value set for COMMANDS")[..] {
+            "recover_stake" => self.process_recover_stake(params).await,
             "ebid" |
             "election-bid" |
             "election_bid" => self.process_election_bid(params).await,
@@ -276,6 +277,25 @@ impl ControlClient {
             }
             Ok(error) => fail!("Error response to {:?}: {:?}", query, error),
         }
+    }
+
+    async fn process_recover_stake<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
+        let query_id = parse_int(params.next(), "query_id")?;
+        if query_id <= 0 {
+            fail!("<query_id> must be a positive integer")
+        }
+
+        // recover-stake.fif
+        let mut data = 0x47657424u32.to_be_bytes().to_vec();
+        data.extend_from_slice(&query_id.to_be_bytes());
+        let len = data.len() * 8;
+        let body = BuilderData::with_raw(data, len)?;
+        let body = body.into();
+        log::trace!("message body {}", body);
+        let data = ton_types::serialize_toc(&body)?;
+        let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
+        std::fs::write(&path, &data)?;
+        Ok((format!("Message body is {}", path), data))
     }
 
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
@@ -499,22 +519,36 @@ mod test {
         "max_factor": 2.7
     }"#;
 
-    #[tokio::test]
-    async fn test_election_bid() {
+    async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
         init_test_log();
         std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
         let server = Engine::with_config("light_node.json").await.unwrap();
         let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
         let mut client = ControlClient::connect(config).await.unwrap();
-
-        let (_, result) = client.command("newkey").await.unwrap();
-        assert_eq!(result.len(), 32);
-        let now = now() + 86400;
-        let (_, result) = client.command(&format!("election-bid {} {} target/validator-query.boc", now, now + 10001)).await.unwrap();
-        assert_eq!(result.len(), 160);
-
+        let (_, result) = client.command(cmd).await.unwrap();
+        check_result(result);
         client.shutdown().await.ok();
         server.shutdown();
+    }
+
+    #[tokio::test]
+    async fn test_new_key() {
+        let cmd = "newkey";
+        test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
+    }
+
+    #[tokio::test]
+    async fn test_election_bid() {
+        let now = now() + 86400;
+        let cmd = format!("election-bid {} {} target/validator-query.boc", now, now + 10001);
+        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 160)).await;
+    }
+
+    #[tokio::test]
+    async fn test_recover_stake() {
+        let now = now();
+        let cmd = format!("recover_stake {} recover-query.boc", now);
+        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 21)).await;
     }
 
     macro_rules! parse_test {
