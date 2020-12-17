@@ -1,7 +1,10 @@
 use clap::{Arg, App};
 use serde_json::{Map, Value};
-use ton_block::{Deserializable, Serializable, ShardIdent, ShardStateUnsplit, UnixTime32};
-use ton_types::{serialize_toc, Result, UInt256, HashmapType};
+use ton_block::{
+    Deserializable, Serializable, ShardIdent, ShardStateUnsplit, UnixTime32,
+    HashmapAugType, Augmentation,
+};
+use ton_types::{serialize_toc, Result, UInt256, HashmapType, BuilderData, error, SliceData};
 
 fn import_zerostate(json: &str) -> Result<()> {
     let map = serde_json::from_str::<Map<String, Value>>(&json)?;
@@ -44,6 +47,19 @@ fn import_zerostate(json: &str) -> Result<()> {
     extra.validator_info.nx_cc_updated = true;
     extra.validator_info.catchain_seqno = 0;
     mc_zero_state.write_custom(Some(&extra))?;
+    // update config in config SMC
+    let mut accounts = mc_zero_state.read_accounts()?;
+    let mut shard_config_smc = accounts.get(&extra.config.config_addr)?.expect("config SMC isn't present");
+    let mut config_smc = shard_config_smc.read_account()?;
+    let mut data = SliceData::from(config_smc.get_data().expect("config SMC doesn't contain data"));
+    data.checked_drain_reference()
+        .map_err(|_| error!("config SMC data doesn't contain reference with old config"))?;
+    let mut builder = BuilderData::from_slice(&data);
+    builder.prepend_reference(BuilderData::from(extra.config.config_params.data().unwrap()));
+    config_smc.set_data(builder.into());
+    shard_config_smc.write_account(&config_smc)?;
+    accounts.set(&extra.config.config_addr, &shard_config_smc, &config_smc.aug()?)?;
+    mc_zero_state.write_accounts(&accounts)?;
     let cell = mc_zero_state.serialize().unwrap();
     let bytes = serialize_toc(&cell).unwrap();
     let file_hash = UInt256::calc_file_hash(&bytes);
