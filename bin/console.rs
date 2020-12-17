@@ -239,7 +239,7 @@ impl ControlClient {
 
     /// Connect to server
     async fn connect(mut config: AdnlConsoleConfigJson) -> Result<Self> {
-        let adnl_config = AdnlClientConfig::from_json_config(config.config.take().unwrap())?;
+        let (_, adnl_config) = AdnlClientConfig::from_json_config(config.config.take().unwrap())?;
         Ok(Self {
             config,
             adnl: AdnlClient::connect(&adnl_config).await?,
