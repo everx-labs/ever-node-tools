@@ -394,7 +394,7 @@ async fn main() {
         env!("BUILD_GIT_DATE"),
         env!("BUILD_GIT_BRANCH")
     );
-    init_test_log();
+    // init_test_log();
     let args = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
         .arg(Arg::with_name("CONFIG")
