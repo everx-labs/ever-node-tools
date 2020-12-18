@@ -107,6 +107,7 @@ fn main() {
             .long("input")
             .help("input json filename with masterchain zerostate")
             .required(true)
+            .default_value("zero_state.json")
             .takes_value(true)
             .number_of_values(1))
         .get_matches();

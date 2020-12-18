@@ -404,6 +404,7 @@ async fn main() {
             .long("config")
             .help("config for console")
             .required(true)
+            .default_value("console.json")
             .takes_value(true)
             .number_of_values(1))
         .arg(Arg::with_name("COMMANDS")
@@ -472,7 +473,7 @@ mod test {
 
     impl Engine {
         pub async fn with_config(node_config_path: &str) -> Result<Self> {
-            let node_config = TonNodeConfig::from_file("target", node_config_path, None, "")?;
+            let node_config = TonNodeConfig::from_file("target", node_config_path, None, "", None)?;
             let control_server_config = node_config.control_server();
             let config_handler = Arc::new(NodeConfigHandler::new(node_config)?);
             let config = control_server_config.expect("must have control server setting");
