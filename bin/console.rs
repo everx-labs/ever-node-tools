@@ -239,7 +239,9 @@ impl ControlClient {
 
     /// Connect to server
     async fn connect(mut config: AdnlConsoleConfigJson) -> Result<Self> {
-        let (_, adnl_config) = AdnlClientConfig::from_json_config(config.config.take().unwrap())?;
+        let client_config = config.config.take()
+            .ok_or_else(|| error!("config must contain \"config\" section"))?;
+        let (_, adnl_config) = AdnlClientConfig::from_json_config(client_config)?;
         Ok(Self {
             config,
             adnl: AdnlClient::connect(&adnl_config).await?,
@@ -520,7 +522,7 @@ mod test {
     }"#;
 
     async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
-        init_test_log();
+        // init_test_log();
         std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
         let server = Engine::with_config("light_node.json").await.unwrap();
         let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
