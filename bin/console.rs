@@ -282,11 +282,7 @@ impl ControlClient {
     }
 
     async fn process_recover_stake<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
-        let query_id = parse_int(params.next(), "query_id")?;
-        if query_id <= 0 {
-            fail!("<query_id> must be a positive integer")
-        }
-
+        let query_id = now() as u32;
         // recover-stake.fif
         let mut data = 0x47657424u32.to_be_bytes().to_vec();
         data.extend_from_slice(&query_id.to_be_bytes());
@@ -295,7 +291,7 @@ impl ControlClient {
         let body = body.into();
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
-        let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
+        let path = params.next().map(|path| path.to_string()).unwrap_or("recover-query.boc".to_string());
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {}", path), data))
     }
@@ -549,9 +545,8 @@ mod test {
 
     #[tokio::test]
     async fn test_recover_stake() {
-        let now = now();
-        let cmd = format!("recover_stake {} recover-query.boc", now);
-        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 21)).await;
+        let cmd = "recover_stake recover-query.boc";
+        test_one_cmd(cmd, |result| assert_eq!(result.len(), 21)).await;
     }
 
     macro_rules! parse_test {
