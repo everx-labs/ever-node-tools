@@ -282,7 +282,7 @@ impl ControlClient {
     }
 
     async fn process_recover_stake<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
-        let query_id = now() as u32;
+        let query_id = now() as u64;
         // recover-stake.fif
         let mut data = 0x47657424u32.to_be_bytes().to_vec();
         data.extend_from_slice(&query_id.to_be_bytes());
@@ -293,9 +293,11 @@ impl ControlClient {
         let data = ton_types::serialize_toc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("recover-query.boc".to_string());
         std::fs::write(&path, &data)?;
-        Ok((format!("Message body is {}", path), data))
+        Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
     }
 
+    // @input elect_time expire_time <validator-query.boc>
+    // @output validator-query.boc
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
         let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
             if !value.starts_with("-1:") {
@@ -355,9 +357,10 @@ impl ControlClient {
         KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
             .verify(&data, &signature)?;
 
+        let query_id = now() as u64;
         // validator-elect-signed.fif
         let mut data = 0x4E73744Bu32.to_be_bytes().to_vec();
-        data.extend_from_slice(&now().to_be_bytes());
+        data.extend_from_slice(&query_id.to_be_bytes());
         data.extend_from_slice(&pub_key);
         data.extend_from_slice(&elect_time.to_be_bytes());
         data.extend_from_slice(&max_factor.to_be_bytes());
@@ -371,7 +374,7 @@ impl ControlClient {
         let data = ton_types::serialize_toc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
         std::fs::write(&path, &data)?;
-        Ok((format!("Message body is {}", path), data))
+        Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
     }
 }
 
@@ -419,19 +422,20 @@ async fn main() {
         .get_matches();
 
     let config = args.value_of("CONFIG").expect("required set for config");
-    let config = serde_json::from_str(&std::fs::read_to_string(config).unwrap()).unwrap();
+    let config = std::fs::read_to_string(config).expect("Can't read config file");
+    let config = serde_json::from_str(&config).expect("Can't parse config");
     let timeout = match args.value_of("TIMEOUT") {
         Some(timeout) => u64::from_str(timeout).expect("timeout must be set in microseconds"),
         None => 0
     };
     let timeout = Duration::from_micros(timeout);
-    let mut client = ControlClient::connect(config).await.unwrap();
+    let mut client = ControlClient::connect(config).await.expect("Can't create client");
     if let Some(commands) = args.values_of("COMMANDS") {
         // batch mode - call commands and exit
         for command in commands {
             match client.command(command.trim_matches('\"')).await {
                 Ok((result, _)) => println!("{}", result),
-                Err(err) => println!("Error executing comamnd: {}", err)
+                Err(err) => println!("Error executing command: {}", err)
             }
             tokio::time::delay_for(timeout).await;
         }
@@ -439,8 +443,9 @@ async fn main() {
         // interactive mode
         loop {
             let mut line = String::default();
-            std::io::stdin().read_line(&mut line).unwrap();
+            std::io::stdin().read_line(&mut line).expect("Can't read line from stdin");
             match line.trim_end() {
+                "" => continue,
                 "quit" => break,
                 command => match client.command(command).await {
                     Ok((result, _)) => println!("{}", result),
@@ -531,7 +536,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_new_key() {
+    async fn test_new_key_one() {
         let cmd = "newkey";
         test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
     }
@@ -540,13 +545,31 @@ mod test {
     async fn test_election_bid() {
         let now = now() + 86400;
         let cmd = format!("election-bid {} {} target/validator-query.boc", now, now + 10001);
-        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 160)).await;
+        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 164)).await;
     }
 
     #[tokio::test]
     async fn test_recover_stake() {
         let cmd = "recover_stake recover-query.boc";
-        test_one_cmd(cmd, |result| assert_eq!(result.len(), 21)).await;
+        test_one_cmd(cmd, |result| assert_eq!(result.len(), 25)).await;
+    }
+
+    #[tokio::test]
+    async fn test_new_key_with_export() {
+        // init_test_log();
+        std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
+        let server = Engine::with_config("light_node.json").await.unwrap();
+        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
+        let mut client = ControlClient::connect(config).await.unwrap();
+        let (_, result) = client.command("newkey").await.unwrap();
+        assert_eq!(result.len(), 32);
+
+        let cmd = format!("exportpub {}", base64::encode(&result));
+        let (_, result) = client.command(&cmd).await.unwrap();
+        assert_eq!(result.len(), 32);
+
+        client.shutdown().await.ok();
+        server.shutdown();
     }
 
     macro_rules! parse_test {
