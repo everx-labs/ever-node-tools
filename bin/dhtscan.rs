@@ -190,7 +190,7 @@ fn main() {
         println!("Usage: dhtscan [--jsonl] [--overlay] [--workchain0] <path-to-global-config>");
         return
     };
-    init_test_log();
+    init_log("./common/config/log_cfg.yml");
     scan(&config, jsonl, overlay, workchain0).unwrap_or_else(
         |e| println!("DHT scanning error: {}", e)
     )
