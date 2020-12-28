@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-include!("../../common/src/test.rs");
+include!("../common/src/test.rs");
 
 trait SendReceive {
     fn send<Q: ToString>(params: impl Iterator<Item = Q>) -> Result<TLObject>;
