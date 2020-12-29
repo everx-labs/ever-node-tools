@@ -5,7 +5,7 @@ use std::{collections::HashMap, env, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
 
-include!("../common/src/log.rs");
+include!("../common/src/test.rs");
 
 const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
@@ -190,7 +190,7 @@ fn main() {
         println!("Usage: dhtscan [--jsonl] [--overlay] [--workchain0] <path-to-global-config>");
         return
     };
-    init_log("./common/config/log_cfg.yml");
+    init_test_log();
     scan(&config, jsonl, overlay, workchain0).unwrap_or_else(
         |e| println!("DHT scanning error: {}", e)
     )
