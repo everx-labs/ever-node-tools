@@ -70,6 +70,7 @@ commands! {
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
+    GetValidatorStatus, "get_validator_status", "get_validator_status\tget status node"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -115,6 +116,23 @@ fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton_ap
 
 fn now() -> ton::int {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
+}
+
+impl SendReceive for GetValidatorStatus {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        Ok(TLObject::new(ton::rpc::engine::validator::GetValidatorStatus))
+    }
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let status = answer
+            .downcast::<ton_api::ton::engine::validator::ValidatorStatus>()?;
+        Ok((format!("received node status: current {}, next {}", 
+            if *status.current() == ton::Bool::BoolTrue {"validator"} else {"full node"},
+            if *status.next() == ton::Bool::BoolTrue {"validator"} else {"full node"}), 
+            vec![
+                if *status.current() == ton::Bool::BoolTrue {1} else {0},
+                if *status.next() == ton::Bool::BoolTrue {1} else {0},
+            ]))
+    }
 }
 
 impl SendReceive for NewKeypair {
@@ -539,6 +557,12 @@ mod test {
     async fn test_new_key_one() {
         let cmd = "newkey";
         test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
+    }
+
+    #[tokio::test]
+    async fn test_validator_status() {
+        let cmd = "get_validator_status";
+        test_one_cmd(cmd, |result| assert_eq!(result, vec![0,0])).await;
     }
 
     #[tokio::test]
