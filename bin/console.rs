@@ -125,7 +125,7 @@ impl SendReceive for GetValidatorStatus {
     fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let status = answer
             .downcast::<ton_api::ton::engine::validator::ValidatorStatus>()?;
-        Ok((format!("received node status: current {}, next {}", 
+        Ok((format!("received node status: current - {}, next - {}", 
             if *status.current() == ton::Bool::BoolTrue {"validator"} else {"full node"},
             if *status.next() == ton::Bool::BoolTrue {"validator"} else {"full node"}), 
             vec![
