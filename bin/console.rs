@@ -71,6 +71,7 @@ commands! {
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
     GetValidatorStatus, "get_validator_status", "get_validator_status\tget status node"
+    GetStats, "getstats", "getstats\tget status validator"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -116,6 +117,22 @@ fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton_ap
 
 fn now() -> ton::int {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
+}
+
+impl SendReceive for GetStats {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        Ok(TLObject::new(ton::rpc::engine::validator::GetStats))
+    }
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let data = serialize(&answer).unwrap();
+        let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
+        let mut description = String::new();
+        for stat in stats.stats().iter() {
+            description.push_str(&stat.key);
+            description.push_str(&stat.value);
+        }
+        Ok((description, data))
+    }
 }
 
 impl SendReceive for GetValidatorStatus {
