@@ -136,7 +136,9 @@ impl SendReceive for GetStats {
                 description.push_str(&stat.value);
                 description.push_str("\",");
             } else {
+                description.push_str(":\t");
                 description.push_str(&stat.value);
+                description.push_str(",");
             }
         }
         description.pop();
