@@ -126,12 +126,16 @@ impl SendReceive for GetStats {
     fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let data = serialize(&answer).unwrap();
         let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
-        let mut description = String::new();
+        let mut description = String::from("{");
         for stat in stats.stats().iter() {
+            description.push_str("\n");
             description.push_str(&stat.key);
-            description.push_str("\t");
+            description.push_str(":\t");
             description.push_str(&stat.value);
+            description.push(',');
         }
+        description.pop();
+        description.push_str("}");
         Ok((description, data))
     }
 }
