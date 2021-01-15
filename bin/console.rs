@@ -129,6 +129,7 @@ impl SendReceive for GetStats {
         let mut description = String::new();
         for stat in stats.stats().iter() {
             description.push_str(&stat.key);
+            description.push_str("\t");
             description.push_str(&stat.value);
         }
         Ok((description, data))
