@@ -124,22 +124,15 @@ impl SendReceive for GetStats {
         Ok(TLObject::new(ton::rpc::engine::validator::GetStats))
     }
     fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let keys_for_str_values = vec!["current status", "next status"];
         let data = serialize(&answer).unwrap();
         let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
         let mut description = String::from("{");
         for stat in stats.stats().iter() {
             description.push_str("\n\t\"");
             description.push_str(&stat.key);
-            if keys_for_str_values.contains(&stat.key.as_str()) {
-                description.push_str("\":\t\"");
-                description.push_str(&stat.value);
-                description.push_str("\",");
-            } else {
-                description.push_str(":\t");
-                description.push_str(&stat.value);
-                description.push_str(",");
-            }
+            description.push_str(":\t");
+            description.push_str(&stat.value);
+            description.push_str(",");
         }
         description.pop();
         description.push_str("\n}");
