@@ -70,6 +70,7 @@ commands! {
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
+    GetStats, "getstats", "getstats\tget status validator"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -115,6 +116,27 @@ fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton_ap
 
 fn now() -> ton::int {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
+}
+
+impl SendReceive for GetStats {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        Ok(TLObject::new(ton::rpc::engine::validator::GetStats))
+    }
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let data = serialize(&answer).unwrap();
+        let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
+        let mut description = String::from("{");
+        for stat in stats.stats().iter() {
+            description.push_str("\n\t\"");
+            description.push_str(&stat.key);
+            description.push_str("\":\t");
+            description.push_str(&stat.value);
+            description.push_str(",");
+        }
+        description.pop();
+        description.push_str("\n}");
+        Ok((description, data))
+    }
 }
 
 impl SendReceive for NewKeypair {
@@ -539,6 +561,12 @@ mod test {
     async fn test_new_key_one() {
         let cmd = "newkey";
         test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
+    }
+
+    #[tokio::test]
+    async fn test_validator_status() {
+        let cmd = "get_validator_status";
+        test_one_cmd(cmd, |result| assert_eq!(result, vec![0,0])).await;
     }
 
     #[tokio::test]
