@@ -130,7 +130,7 @@ impl SendReceive for GetStats {
         for stat in stats.stats().iter() {
             description.push_str("\n\t\"");
             description.push_str(&stat.key);
-            description.push_str(":\t");
+            description.push_str("\":\t");
             description.push_str(&stat.value);
             description.push_str(",");
         }
