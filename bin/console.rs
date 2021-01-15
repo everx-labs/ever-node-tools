@@ -135,7 +135,7 @@ impl SendReceive for GetStats {
             description.push(',');
         }
         description.pop();
-        description.push_str("}");
+        description.push_str("\n}");
         Ok((description, data))
     }
 }
