@@ -128,11 +128,11 @@ impl SendReceive for GetStats {
         let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
         let mut description = String::from("{");
         for stat in stats.stats().iter() {
-            description.push_str("\n");
+            description.push_str("\n\"");
             description.push_str(&stat.key);
-            description.push_str(":\t");
+            description.push_str("\":\t\"");
             description.push_str(&stat.value);
-            description.push(',');
+            description.push_str("\",");
         }
         description.pop();
         description.push_str("\n}");
