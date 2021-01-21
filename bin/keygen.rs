@@ -14,7 +14,10 @@ fn gen() -> Result<()> {
             "pub_key": base64::encode(public.pub_key()?),
         },
         "keyhash": base64::encode(public.id().data()),
-        "pub_key_hex": hex::encode(public.pub_key()?)
+        "hex": {
+            "secret": hex::encode(base64::decode(private["pvt_key"].as_str().unwrap())?),
+            "public": hex::encode(public.pub_key()?)
+        }
     }));
     Ok(())
 } 

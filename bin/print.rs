@@ -75,8 +75,8 @@ async fn main() -> Result<()> {
             .number_of_values(1))
         .arg(Arg::with_name("BOC")
             .short("c")
-            .long("bag of cells")
-            .help("print containtment")
+            .long("boc")
+            .help("print containtment of bag of cells")
             .takes_value(true)
             .number_of_values(1))
         .get_matches();
