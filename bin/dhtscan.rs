@@ -5,7 +5,7 @@ use std::{collections::HashMap, env, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
 
-include!("../common/src/log.rs");
+include!("../common/src/test.rs");
 
 const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
