@@ -12,6 +12,10 @@ const KEY_TAG: usize = 1;
 
 fn scan(config: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) -> Result<()> {
 
+    let file = File::open(config)?;
+    let reader = BufReader::new(file);
+    let config: TonNodeGlobalConfigJson = serde_json::from_reader(reader)?;
+
     let config = TonNodeGlobalConfigJson::from_json_file(config).map_err(
         |e| error!("Cannot read config from file {}: {}", config, e) 
     )?;

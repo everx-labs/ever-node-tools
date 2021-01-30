@@ -1,7 +1,7 @@
 use clap::{Arg, App};
 use std::str::FromStr;
 use ton_block::{AccountIdPrefixFull, BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord};
-use ton_node::db::{InternalDb, InternalDbConfig, InternalDbImpl};
+use ton_node::internal_db::{InternalDb, InternalDbConfig, InternalDbImpl};
 use ton_types::Result;
 
 async fn print_block(db: &InternalDbImpl, block_id: BlockIdExt) -> Result<()> {
