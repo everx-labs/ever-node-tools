@@ -1,7 +1,7 @@
 use adnl::{common::KeyOption, node::{AdnlNode, AdnlNodeConfig}};
 use dht::DhtNode;
 use overlay::OverlayNode;
-use std::{collections::HashMap, env, ops::Deref, sync::Arc};
+use std::{collections::HashMap, env, fs::File, io::BufReader, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
 
@@ -10,14 +10,12 @@ include!("../common/src/test.rs");
 const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
 
-fn scan(config: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) -> Result<()> {
+fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) -> Result<()> {
 
-    let file = File::open(config)?;
+    let file = File::open(cfgfile)?;
     let reader = BufReader::new(file);
-    let config: TonNodeGlobalConfigJson = serde_json::from_reader(reader)?;
-
-    let config = TonNodeGlobalConfigJson::from_json_file(config).map_err(
-        |e| error!("Cannot read config from file {}: {}", config, e) 
+    let config: TonNodeGlobalConfigJson = serde_json::from_reader(reader).map_err(
+        |e| error!("Cannot read config from file {}: {}", cfgfile, e) 
     )?;
     let zero_state = config.zero_state()?;
     let zero_state = zero_state.file_hash;
