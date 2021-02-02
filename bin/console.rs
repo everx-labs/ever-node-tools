@@ -71,6 +71,7 @@ commands! {
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
     GetStats, "getstats", "getstats\tget status validator"
+    SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -248,6 +249,15 @@ impl SendReceive for FutureBundle {
         Ok(TLObject::new(ton::rpc::engine::validator::GetFutureBundle {
             prev_block_ids: prev_block_ids.into()
         }))
+    }
+}
+
+impl SendReceive for SendMessage {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let filename = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let body = std::fs::read(&filename)
+            .map_err(|e| error!("Can't read file {} with message: {}", filename, e))?;
+        Ok(TLObject::new(ton::rpc::lite_server::SendMessage {body: body.into()}))
     }
 }
 
