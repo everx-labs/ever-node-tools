@@ -11,12 +11,12 @@ This tool serves the purpose of generating election requests for the Rust Node. 
 ### Command syntax
 
 ```bash
-console -C config.json -c "commamd with parameters" -c "another command" -t timeout
+console -C console.json -c "commamd with parameters" -c "another command" -t timeout
 ```
 
 Where
 
-`config.json` - path to configuration file
+`console.json` - path to configuration file
 
 `commamd with parameters`/ `another command` – any of the supported console commands with necessary parameters
 
