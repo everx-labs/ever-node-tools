@@ -6,14 +6,15 @@ use ton_api::ton::{
     engine::validator::ControlQueryError,
     rpc::engine::validator::ControlQuery,
 };
-use ton_block::BlockIdExt;
-use ton_types::{error, fail, Result, BuilderData};
+use ton_block::{Serializable, BlockIdExt};
+use ton_types::{error, fail, Result, BuilderData, serialize_toc};
 use std::{
     convert::TryInto,
     env,
     str::FromStr,
     time::Duration,
 };
+use serde_json::{Map, Value};
 
 include!("../common/src/test.rs");
 
@@ -283,6 +284,8 @@ impl ControlClient {
             "ebid" |
             "election-bid" |
             "election_bid" => self.process_election_bid(params).await,
+            "config_param" |
+            "cparam" => self.process_config_param(params).await,
             name => self.process_command(name, params).await
         }
     }
@@ -398,6 +401,41 @@ impl ControlClient {
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
     }
+
+    // @input index zerostate.json <config-param.boc>
+    // @output config-param.boc
+    async fn process_config_param<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
+        let index = parse_int(params.next(), "index")?;
+        if index < 0 {
+            fail!("<index> must not be a negative integer")
+        }
+        let zerostate = parse_any(params.next(), "zerostate.json", |value| Ok(value.to_string()))?;
+        let path = params.next().map(|path| path.to_string()).unwrap_or("config-param.boc".to_string());
+
+        let zerostate = std::fs::read_to_string(&zerostate)
+            .map_err(|err| error!("Can't read zerostate json file {} : {}", zerostate, err))?;
+        let zerostate = serde_json::from_str::<Map<String, Value>>(&zerostate)
+            .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
+        let zerostate = ton_block_json::parse_state(&zerostate)
+            .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
+
+        let config_param_cell = zerostate.read_custom()
+            .map_err(|err| error!("Can't read McStateExtra from zerostate: {}", err))?
+            .ok_or_else(|| error!("Can't find McStateExtra in zerostate"))?
+            .config().config_params.get(index.serialize()?.into())
+            .map_err(|err| error!("Can't read config param {} from zerostate: {}", index, err))?
+            .ok_or_else(|| error!("Can't find config param {} in zerostate", index))?
+            .reference_opt(0)
+            .ok_or_else(|| error!("Can't parse config param {}: wrong format - no reference", index))?;
+
+        let data = serialize_toc(&config_param_cell)
+            .map_err(|err| error!("Can't serialize config param {}: {}", index, err))?;
+
+        std::fs::write(&path, &data)
+            .map_err(|err| error!("Can't write config param {} to file {}: {}", index, path, err))?;
+
+        Ok((format!("Config param {} saved to path {}", index, path), data))
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -488,6 +526,7 @@ mod test {
         network::control::ControlServer,
     };
     use ton_types::Result;
+    use ton_block::{BlockLimits, ParamLimits, Deserializable};
 
     pub struct Engine {
         _config_handler: Arc<NodeConfigHandler>,
@@ -497,7 +536,7 @@ mod test {
     impl Engine {
         pub async fn with_config(node_config_path: &str) -> Result<Self> {
             let node_config = TonNodeConfig::from_file("target", node_config_path, None, "", None)?;
-            let control_server_config = node_config.control_server();
+            let control_server_config = node_config.control_server()?;
             let config_handler = Arc::new(NodeConfigHandler::new(node_config)?);
             let config = control_server_config.expect("must have control server setting");
             let control = ControlServer::with_config(config, None, config_handler.clone(), config_handler.clone()).await?;
@@ -545,6 +584,213 @@ mod test {
         "max_factor": 2.7
     }"#;
 
+    const SAMPLE_ZERO_STATE: &str = r#"{
+        "id": "-1:8000000000000000",
+        "workchain_id": -1,
+        "boc": "",
+        "global_id": 42,
+        "shard": "8000000000000000",
+        "seq_no": 0,
+        "vert_seq_no": 0,
+        "gen_utime": 1600000000,
+        "gen_lt": "0",
+        "min_ref_mc_seqno": 4294967295,
+        "before_split": false,
+        "overload_history": "0",
+        "underload_history": "0",
+        "total_balance": "4993357197000000000",
+        "total_validator_fees": "0",
+        "master": {
+            "config_addr": "5555555555555555555555555555555555555555555555555555555555555555",
+            "config": {
+            "p0": "5555555555555555555555555555555555555555555555555555555555555555",
+            "p1": "3333333333333333333333333333333333333333333333333333333333333333",
+            "p2": "0000000000000000000000000000000000000000000000000000000000000000",
+            "p7": [],
+            "p8": {
+                "version": 5,
+                "capabilities": "46"
+            },
+            "p9": [ 0 ],
+            "p10": [ 0 ],
+            "p11": {
+                "normal_params": {
+                    "min_tot_rounds": 2,
+                    "max_tot_rounds": 3,
+                    "min_wins": 2,
+                    "max_losses": 2,
+                    "min_store_sec": 1000000,
+                    "max_store_sec": 10000000,
+                    "bit_price": 1,
+                    "cell_price": 500
+                },
+                "critical_params": {
+                    "min_tot_rounds": 4,
+                    "max_tot_rounds": 7,
+                    "min_wins": 4,
+                    "max_losses": 2,
+                    "min_store_sec": 5000000,
+                    "max_store_sec": 20000000,
+                    "bit_price": 2,
+                    "cell_price": 1000
+                }
+            },
+            "p12": [],
+            "p13": {
+                "boc": "te6ccgEBAQEADQAAFRpRdIdugAEBIB9I"
+            },
+            "p14": {
+                "masterchain_block_fee": "1700000000",
+                "basechain_block_fee": "1000000000"
+            },
+            "p15": {
+                "validators_elected_for": 65536,
+                "elections_start_before": 32768,
+                "elections_end_before": 8192,
+                "stake_held_for": 32768
+            },
+            "p16": {
+                "max_validators": 1000,
+                "max_main_validators": 100,
+                "min_validators": 5
+            },
+            "p17": {
+                "min_stake": "10000000000000",
+                "max_stake": "10000000000000000",
+                "min_total_stake": "100000000000000",
+                "max_stake_factor": 196608
+            },
+            "p18": [
+                {
+                "utime_since": 0,
+                "bit_price_ps": "1",
+                "cell_price_ps": "500",
+                "mc_bit_price_ps": "1000",
+                "mc_cell_price_ps": "500000"
+                }
+            ],
+            "p20": {
+                "flat_gas_limit": "1000",
+                "flat_gas_price": "10000000",
+                "gas_price": "655360000",
+                "gas_limit": "1000000",
+                "special_gas_limit": "100000000",
+                "gas_credit": "10000",
+                "block_gas_limit": "10000000",
+                "freeze_due_limit": "100000000",
+                "delete_due_limit": "1000000000"
+            },
+            "p21": {
+                "flat_gas_limit": "1000",
+                "flat_gas_price": "1000000",
+                "gas_price": "65536000",
+                "gas_limit": "1000000",
+                "special_gas_limit": "1000000",
+                "gas_credit": "10000",
+                "block_gas_limit": "10000000",
+                "freeze_due_limit": "100000000",
+                "delete_due_limit": "1000000000"
+            },
+            "p22": {
+                "bytes": {
+                    "underload": 131072,
+                    "soft_limit": 524288,
+                    "hard_limit": 1048576
+                },
+                "gas": {
+                    "underload": 900000,
+                    "soft_limit": 1200000,
+                    "hard_limit": 2000000
+                },
+                "lt_delta": {
+                    "underload": 1000,
+                    "soft_limit": 5000,
+                    "hard_limit": 10000
+                }
+            },
+            "p23": {
+                "bytes": {
+                    "underload": 131072,
+                    "soft_limit": 524288,
+                    "hard_limit": 1048576
+                },
+                "gas": {
+                    "underload": 900000,
+                    "soft_limit": 1200000,
+                    "hard_limit": 2000000
+                },
+                "lt_delta": {
+                    "underload": 1000,
+                    "soft_limit": 5000,
+                    "hard_limit": 10000
+                }
+            },
+            "p24": {
+                "lump_price": "10000000",
+                "bit_price": "655360000",
+                "cell_price": "65536000000",
+                "ihr_price_factor": 98304,
+                "first_frac": 21845,
+                "next_frac": 21845
+            },
+            "p25": {
+                "lump_price": "1000000",
+                "bit_price": "65536000",
+                "cell_price": "6553600000",
+                "ihr_price_factor": 98304,
+                "first_frac": 21845,
+                "next_frac": 21845
+            },
+            "p28": {
+                "shuffle_mc_validators": true,
+                "mc_catchain_lifetime": 250,
+                "shard_catchain_lifetime": 250,
+                "shard_validators_lifetime": 1000,
+                "shard_validators_num": 7
+            },
+            "p29": {
+                "new_catchain_ids": true,
+                "round_candidates": 3,
+                "next_candidate_delay_ms": 2000,
+                "consensus_timeout_ms": 16000,
+                "fast_attempts": 3,
+                "attempt_duration": 8,
+                "catchain_max_deps": 4,
+                "max_block_bytes": 2097152,
+                "max_collated_bytes": 2097152
+            },
+            "p31": [
+                "0000000000000000000000000000000000000000000000000000000000000000"
+            ],
+            "p34": {
+                "utime_since": 1600000000,
+                "utime_until": 1610000000,
+                "total": 1,
+                "main": 1,
+                "total_weight": "17",
+                "list": [
+                    {
+                        "public_key": "2e7eb5a711ed946605a91e36037c4cb927181eff4bb277b175d891a588d03536",
+                        "weight": "17"
+                    }
+                ]
+            }
+            },
+            "validator_list_hash_short": 871956759,
+            "catchain_seqno": 0,
+            "nx_cc_updated": true,
+            "after_key_block": true,
+            "global_balance": "4993357197000000000"
+        },
+        "accounts": [],
+        "libraries": [],
+        "out_msg_queue_info": {
+            "out_queue": [],
+            "proc_info": [],
+            "ihr_pending": []
+        }
+    }"#;
+
     async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
         // init_test_log();
         std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
@@ -572,14 +818,27 @@ mod test {
     #[tokio::test]
     async fn test_election_bid() {
         let now = now() + 86400;
-        let cmd = format!("election-bid {} {} target/validator-query.boc", now, now + 10001);
+        let cmd = format!(r#"election-bid {} {} "target/validator-query.boc""#, now, now + 10001);
         test_one_cmd(&cmd, |result| assert_eq!(result.len(), 164)).await;
     }
 
     #[tokio::test]
     async fn test_recover_stake() {
-        let cmd = "recover_stake recover-query.boc";
+        let cmd = r#"recover_stake "target/recover-query.boc""#;
         test_one_cmd(cmd, |result| assert_eq!(result.len(), 25)).await;
+    }
+
+    #[tokio::test]
+    async fn test_config_param() {
+        std::fs::write("target/zerostate.json", SAMPLE_ZERO_STATE).unwrap();
+        let cmd = r#"cparam 23 "target/zerostate.json" "target/config-param.boc""#;
+        test_one_cmd(cmd, |result| {
+            assert_eq!(result.len(), 53);
+            let limits = BlockLimits::construct_from_bytes(&result).unwrap();
+            assert_eq!(limits.bytes(), &ParamLimits::with_limits(131072, 524288, 1048576).unwrap());
+            assert_eq!(limits.gas(), &ParamLimits::with_limits(900000, 1200000, 2000000).unwrap());
+            assert_eq!(limits.lt_delta(), &ParamLimits::with_limits(1000, 5000, 10000).unwrap());
+        }).await;
     }
 
     #[tokio::test]
