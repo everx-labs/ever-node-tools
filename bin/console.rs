@@ -507,7 +507,7 @@ async fn main() {
                 Ok((result, _)) => println!("{}", result),
                 Err(err) => println!("Error executing command: {}", err)
             }
-            tokio::time::delay_for(timeout).await;
+            tokio::time::sleep(timeout).await;
         }
     } else {
         // interactive mode
@@ -556,8 +556,8 @@ mod test {
                 control
             })
         }
-        pub fn shutdown(self) {
-            self.control.shutdown()
+        pub async fn shutdown(self) {
+            self.control.shutdown().await
         }
     }
     const ADNL_SERVER_CONFIG: &str = r#"{
@@ -810,7 +810,7 @@ mod test {
         let (_, result) = client.command(cmd).await.unwrap();
         check_result(result);
         client.shutdown().await.ok();
-        server.shutdown();
+        server.shutdown().await;
     }
 
     #[tokio::test]
@@ -866,7 +866,7 @@ mod test {
         assert_eq!(result.len(), 32);
 
         client.shutdown().await.ok();
-        server.shutdown();
+        server.shutdown().await;
     }
 
     macro_rules! parse_test {
