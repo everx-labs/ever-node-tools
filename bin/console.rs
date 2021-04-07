@@ -72,6 +72,7 @@ commands! {
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
     GetStats, "getstats", "getstats\tget status validator"
+    GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
 }
 
@@ -134,6 +135,34 @@ impl SendReceive for GetStats {
             description.push_str("\":\t");
             description.push_str(&stat.value);
             description.push_str(",");
+        }
+        description.pop();
+        description.push_str("\n}");
+        Ok((description, data))
+    }
+}
+
+impl SendReceive for GetSessionStats {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        Ok(TLObject::new(ton::rpc::engine::validator::GetSessionStats))
+    }
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let data = serialize(&answer).unwrap();
+        let stats = answer.downcast::<ton_api::ton::engine::validator::SessionStats>()?;
+        let mut description = String::from("{");
+        for session_stat in stats.stats().iter() {
+            description.push_str("\n\t\"");
+            description.push_str(&session_stat.session_id);
+            description.push_str("\":\t{");
+            for stat in session_stat.stats.iter() {
+                description.push_str("\n\t\t\"");
+                description.push_str(&stat.key);
+                description.push_str("\":\t");
+                description.push_str(&stat.value);
+                description.push_str(",");
+            }
+            description.pop();
+            description.push_str("\n\t\"},");
         }
         description.pop();
         description.push_str("\n}");
