@@ -24,8 +24,12 @@ tokio = { version = "1.3.0", features = ["rt-multi-thread"] }
 ton_api = { git = "https://github.com/tonlabs/ton-labs-tl.git", package = "ton_api" }
 ton_block = { git = "https://github.com/tonlabs/ton-labs-block.git" }
 ton_block_json = { git = "https://github.com/tonlabs/ton-labs-block-json.git" }
-ton_node = { git = "https://github.com/tonlabs/ton-labs-node.git" }
+ton_node = { version = "0.5", git = "https://github.com/tonlabs/ton-labs-node.git" }
 ton_types = { git = "https://github.com/tonlabs/ton-labs-types.git" }
+
+[[bin]]
+name = "adnl_resolve"
+path = "bin/adnl_resolve.rs"
 
 [[bin]]
 name = "dhtscan"
@@ -63,3 +67,30 @@ ton_types = { git = "ssh://git@github.com/tonlabs/ton-types.git" }
 
 [patch.'https://github.com/tonlabs/ton-labs-tl.git']
 ton_api = { git = "ssh://git@github.com/tonlabs/ton-tl.git", package = "ton_api" }
+
+[patch.'https://github.com/tonlabs/ton-labs-executor.git']
+ton_executor = { git = "ssh://git@github.com/tonlabs/ton-executor.git" }
+
+[patch.'https://github.com/tonlabs/ton-labs-node.git']
+ton_node = { path = ".." }
+
+[patch.'https://github.com/tonlabs/ton-labs-adnl.git']
+adnl = { path = "../adnl" }
+
+[patch.'https://github.com/tonlabs/ton-labs-dht.git']
+dht = { path = "../dht" }
+
+[patch.'https://github.com/tonlabs/ton-labs-overlay.git']
+overlay = { path = "../overlay" }
+
+[patch.'ssh://git@github.com/tonlabs/adnl.git']
+adnl = { path = "../adnl" }
+
+[patch.'ssh://git@github.com/tonlabs/dht.git']
+dht = { path = "../dht" }
+
+[patch.'ssh://git@github.com/tonlabs/overlay.git']
+overlay = { path = "../overlay" }
+
+[patch.'ssh://git@github.com/tonlabs/rldp.git']
+rldp = { path = "../rldp" }
