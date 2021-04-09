@@ -133,7 +133,12 @@ impl SendReceive for GetStats {
             description.push_str("\n\t\"");
             description.push_str(&stat.key);
             description.push_str("\":\t");
-            description.push_str(&stat.value);
+            let value = match serde_json::Number::from_str(&stat.value) {
+                Ok(num) => serde_json::value::Value::Number(num),
+                Err(_) => serde_json::value::Value::String(stat.value.clone())
+            };
+            let value_str = serde_json::to_string_pretty(&value).unwrap();
+            description.push_str(&value_str);
             description.push_str(",");
         }
         description.pop();
