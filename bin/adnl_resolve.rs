@@ -44,7 +44,7 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
     let keyid = KeyId::from_data((&base64::decode(adnlid)?[..32]).try_into()?);
     println!("Searching DHT for {}...", keyid);
     loop {
-        if let OK((ip, key)) = rt.block_on(DhtNode::find_address(&dht, &keyid)) {
+        if let Ok((ip, key)) = rt.block_on(DhtNode::find_address(&dht, &keyid)) {
             println!("Found {} / {}", ip, key.id());
             return Ok(())
         } else {
