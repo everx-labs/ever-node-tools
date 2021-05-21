@@ -27,28 +27,43 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
     let dht = DhtNode::with_adnl_node(adnl.clone(), KEY_TAG)?;
     rt.block_on(AdnlNode::start(&adnl, vec![dht.clone()]))?;
 
-    let mut preset_nodes = Vec::new();
+    let mut nodes = Vec::new();
+    let mut bad_nodes = Vec::new();
     for dht_node in dht_nodes.iter() {
         if let Some(key) = dht.add_peer(dht_node)? {
-            preset_nodes.push(key)
+            nodes.push(key)
         } else {
             fail!("Invalid DHT peer {:?}", dht_node)
         }
     }
 
-    println!("Scanning DHT...");
-    for node in preset_nodes.iter() {
-        rt.block_on(dht.find_dht_nodes(node))?;
-    }
-
     let keyid = KeyId::from_data((&base64::decode(adnlid)?[..32]).try_into()?);
-    println!("Searching DHT for {}...", keyid);
+    let mut index = 0;
     loop {
+        println!("Searching DHT for {}...", keyid);
         if let Ok((ip, key)) = rt.block_on(DhtNode::find_address(&dht, &keyid)) {
             println!("Found {} / {}", ip, key.id());
             return Ok(())
+        }
+        if index >= nodes.len() {
+            nodes.clear();
+            for dht_node in dht.get_known_nodes(10000)?.iter() {
+                if let Some(key) = dht.add_peer(dht_node)? {
+                    if !bad_nodes.contains(&key) {
+                        nodes.push(key)
+                    }
+                }
+            } 
+            if nodes.is_empty() {
+                fail!("No good DHT peers")
+            }
+            index = 0;
+        }
+        println!("Not found yet, scanning more DHT nodes from {}...", nodes[index]);
+        if !rt.block_on(dht.find_dht_nodes(&nodes[index]))? {
+            bad_nodes.push(nodes.remove(index))
         } else {
-            println!("Not found yet, next iteration...");
+            index += 1
         }
     }
 
