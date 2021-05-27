@@ -13,6 +13,7 @@ fn compute(typ: &str, key: &str) -> Result<()> {
     } else if typ.to_lowercase().as_str() == "pvt" {
         println!("Private key: {}", key);
         let (_, key) = KeyOption::from_type_and_private_key(KeyOption::KEY_ED25519, &key_bin)?;
+        println!("Public key: {}", base64::encode(key.pub_key()?));
         key
     } else {
         fail!("Wrong key type: expected pub|pvt, found {}", typ)
