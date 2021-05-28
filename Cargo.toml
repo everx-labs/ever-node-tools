@@ -75,26 +75,3 @@ ton_api = { git = "ssh://git@github.com/tonlabs/ton-tl.git", package = "ton_api"
 [patch.'https://github.com/tonlabs/ton-labs-executor.git']
 ton_executor = { git = "ssh://git@github.com/tonlabs/ton-executor.git" }
 
-[patch.'https://github.com/tonlabs/ton-labs-node.git']
-ton_node = { path = ".." }
-
-[patch.'https://github.com/tonlabs/ton-labs-adnl.git']
-adnl = { path = "../adnl" }
-
-[patch.'https://github.com/tonlabs/ton-labs-dht.git']
-dht = { path = "../dht" }
-
-[patch.'https://github.com/tonlabs/ton-labs-overlay.git']
-overlay = { path = "../overlay" }
-
-[patch.'ssh://git@github.com/tonlabs/adnl.git']
-adnl = { path = "../adnl" }
-
-[patch.'ssh://git@github.com/tonlabs/dht.git']
-dht = { path = "../dht" }
-
-[patch.'ssh://git@github.com/tonlabs/overlay.git']
-overlay = { path = "../overlay" }
-
-[patch.'ssh://git@github.com/tonlabs/rldp.git']
-rldp = { path = "../rldp" }
