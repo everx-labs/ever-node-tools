@@ -1,4 +1,9 @@
-use adnl::{common::KeyOption, node::{AdnlNode, AdnlNodeConfig, AdnlNodeConfigJson, IpAddress}};
+use adnl::{
+    common::{KeyOption, TaggedTlObject}, 
+    node::{AdnlNode, AdnlNodeConfig, AdnlNodeConfigJson, IpAddress}
+};
+#[cfg(feature = "telemetry")]
+use adnl::common::tag_from_boxed_type;
 use overlay::OverlayNode;
 use std::{convert::TryInto, env, fs::File, io::BufReader, sync::Arc};
 use ton_api::ton::{TLObject, rpc::ton_node::GetCapabilities};
@@ -78,7 +83,11 @@ fn ping(
     }
 
     println!("Pinging {}/{} by GetCapabilities", other_id, ip_addr);
-    let query = TLObject::new(GetCapabilities);
+    let query = TaggedTlObject {
+        object: TLObject::new(GetCapabilities),
+        #[cfg(feature = "telemetry")]
+        tag: tag_from_boxed_type::<GetCapabilities>()
+    };
     if let Some(reply) = rt.block_on(overlay.query(&other_id, &query, &overlay_id, None))? {
         println!("Got response: {:?}", reply)
     } else {

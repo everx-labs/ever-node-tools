@@ -1,10 +1,14 @@
-use adnl::common::{KeyOption, serialize};
+use adnl::common::{KeyOption, serialize, TaggedTlObject};
+#[cfg(feature = "telemetry")]
+use adnl::common::tag_from_object;
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
 use clap::{Arg, App};
-use ton_api::ton::{
-    self, TLObject, 
-    engine::validator::ControlQueryError,
-    rpc::engine::validator::ControlQuery,
+use ton_api::{
+    ton::{
+        self, TLObject, 
+        engine::validator::ControlQueryError,
+        rpc::engine::validator::ControlQuery,
+    }
 };
 use ton_block::{Serializable, BlockIdExt};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
@@ -72,6 +76,7 @@ commands! {
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
     GetStats, "getstats", "getstats\tget status validator"
+    GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
 }
 
@@ -134,6 +139,34 @@ impl SendReceive for GetStats {
             description.push_str("\":\t");
             description.push_str(&stat.value);
             description.push_str(",");
+        }
+        description.pop();
+        description.push_str("\n}");
+        Ok((description, data))
+    }
+}
+
+impl SendReceive for GetSessionStats {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        Ok(TLObject::new(ton::rpc::engine::validator::GetSessionStats))
+    }
+    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let data = serialize(&answer).unwrap();
+        let stats = answer.downcast::<ton_api::ton::engine::validator::SessionStats>()?;
+        let mut description = String::from("{");
+        for session_stat in stats.stats().iter() {
+            description.push_str("\n\t\"");
+            description.push_str(&session_stat.session_id);
+            description.push_str("\":\t{");
+            for stat in session_stat.stats.iter() {
+                description.push_str("\n\t\t\"");
+                description.push_str(&stat.key);
+                description.push_str("\":\t");
+                description.push_str(&stat.value);
+                description.push_str(",");
+            }
+            description.pop();
+            description.push_str("\n\t\"},");
         }
         description.pop();
         description.push_str("\n}");
@@ -305,7 +338,14 @@ impl ControlClient {
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
         };
-        let answer = self.adnl.query(&TLObject::new(boxed)).await
+        #[cfg(feature = "telemetry")]
+        let tag = tag_from_object(&boxed);
+        let boxed = TaggedTlObject {
+            object: TLObject::new(boxed),
+            #[cfg(feature = "telemetry")]
+            tag
+        };
+        let answer = self.adnl.query(&boxed).await
             .map_err(|err| error!("Error receiving answer: {}", err))?;
         match answer.downcast::<ControlQueryError>() {
             Err(answer) => match command_receive(name, answer) {
@@ -507,7 +547,7 @@ async fn main() {
                 Ok((result, _)) => println!("{}", result),
                 Err(err) => println!("Error executing command: {}", err)
             }
-            tokio::time::delay_for(timeout).await;
+            tokio::time::sleep(timeout).await;
         }
     } else {
         // interactive mode
@@ -556,8 +596,8 @@ mod test {
                 control
             })
         }
-        pub fn shutdown(self) {
-            self.control.shutdown()
+        pub async fn shutdown(self) {
+            self.control.shutdown().await
         }
     }
     const ADNL_SERVER_CONFIG: &str = r#"{
@@ -810,7 +850,7 @@ mod test {
         let (_, result) = client.command(cmd).await.unwrap();
         check_result(result);
         client.shutdown().await.ok();
-        server.shutdown();
+        server.shutdown().await;
     }
 
     #[tokio::test]
@@ -866,7 +906,7 @@ mod test {
         assert_eq!(result.len(), 32);
 
         client.shutdown().await.ok();
-        server.shutdown();
+        server.shutdown().await;
     }
 
     macro_rules! parse_test {

@@ -1,15 +1,14 @@
 use adnl::{adnl_node_test_key, adnl_node_test_config, common::KeyOption, node::{AdnlNode, AdnlNodeConfig}};
 use dht::DhtNode;
 use std::{env, ops::Deref};
-use ton_types::{Result};
+use ton_types::Result;
 
-fn gen(ip: &str, dht_key_enc: &str) -> Result<()> {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+async fn gen(ip: &str, dht_key_enc: &str) -> Result<()> {
     let config = AdnlNodeConfig::from_json(
        adnl_node_test_config!(ip, adnl_node_test_key!(1 as usize, dht_key_enc)),
        true
     ).unwrap();
-    let adnl = rt.block_on(AdnlNode::with_config(config)).unwrap();
+    let adnl = AdnlNode::with_config(config).await.unwrap();
     let dht = DhtNode::with_adnl_node(adnl.clone(), 1 as usize).unwrap();
     let node = dht.get_signed_node().unwrap();
     let key = KeyOption::from_tl_public_key(&node.id)?;
@@ -43,11 +42,12 @@ fn gen(ip: &str, dht_key_enc: &str) -> Result<()> {
     Ok(())
 } 
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         println!("Usage: gendht <ip:port> <private DHT key in base64>");
         return
     };
-    gen(&args[1], &args[2]).unwrap_or_else(|e| println!("gen error: {}", e))
+    gen(&args[1], &args[2]).await.unwrap_or_else(|e| println!("gen error: {}", e))
 }

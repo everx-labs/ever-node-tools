@@ -1,6 +1,6 @@
 [package]
 name = "ton-node-tools"
-version = "0.1.0"
+version = "0.1.16"
 edition = "2018"
 build = "common/build/build.rs"
 
@@ -17,14 +17,14 @@ serde_json = "1.0.56"
 shell-words = ""
 clap = "2.33.3"
 
-adnl = { version = "0.1", git = "https://github.com/tonlabs/ton-labs-adnl.git", features = ["client"] }
-dht = { version = "0.1", git = "https://github.com/tonlabs/ton-labs-dht.git" }
-overlay = { version = "0.1", git = "https://github.com/tonlabs/ton-labs-overlay.git" }
+adnl = { git = "https://github.com/tonlabs/ton-labs-adnl.git", features = ["client"] }
+dht = { git = "https://github.com/tonlabs/ton-labs-dht.git" }
+overlay = { git = "https://github.com/tonlabs/ton-labs-overlay.git" }
 tokio = { version = "1.5.0", features = ["rt-multi-thread"] }
 ton_api = { git = "https://github.com/tonlabs/ton-labs-tl.git", package = "ton_api" }
 ton_block = { git = "https://github.com/tonlabs/ton-labs-block.git" }
 ton_block_json = { git = "https://github.com/tonlabs/ton-labs-block-json.git" }
-ton_node = { version = "0.5", git = "https://github.com/tonlabs/ton-labs-node.git" }
+ton_node = { git = "https://github.com/tonlabs/ton-labs-node.git" }
 ton_types = { git = "https://github.com/tonlabs/ton-labs-types.git" }
 
 [[bin]]
@@ -62,4 +62,8 @@ path = "bin/print.rs"
 [[bin]]
 name = "zerostate"
 path = "bin/zerostate.rs"
+
+[features]
+default = ["telemetry"]
+telemetry = []
 

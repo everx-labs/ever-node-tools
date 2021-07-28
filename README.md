@@ -2,6 +2,15 @@
 
 This repository contains a collection of tools used to manage the TON Labs Rust Node.
 
+## Prerequisites
+
+- [Rust](https://www.rust-lang.org/tools/install) latest
+- OpenSSL 
+    ```bash
+    sudo apt-get install libssl-dev (openssl-devel on Fedora)
+    sudo apt-get install pkg-config
+    ```
+
 # Console
 
 This tool serves the purpose of generating election requests for the Rust Node. The tool is compatible with [TONOS-CLI](https://github.com/tonlabs/tonos-cli) and allows to perform all actions necessary to obtain a signed election request.
