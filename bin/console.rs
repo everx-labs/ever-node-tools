@@ -1,10 +1,14 @@
-use adnl::common::{KeyOption, serialize};
+use adnl::common::{KeyOption, serialize, TaggedTlObject};
+#[cfg(feature = "telemetry")]
+use adnl::common::tag_from_object;
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
 use clap::{Arg, App};
-use ton_api::ton::{
-    self, TLObject, 
-    engine::validator::ControlQueryError,
-    rpc::engine::validator::ControlQuery,
+use ton_api::{
+    ton::{
+        self, TLObject, 
+        engine::validator::ControlQueryError,
+        rpc::engine::validator::ControlQuery,
+    }
 };
 use ton_block::{Serializable, BlockIdExt};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
@@ -345,7 +349,14 @@ impl ControlClient {
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
         };
-        let answer = self.adnl.query(&TLObject::new(boxed)).await
+        #[cfg(feature = "telemetry")]
+        let tag = tag_from_object(&boxed);
+        let boxed = TaggedTlObject {
+            object: TLObject::new(boxed),
+            #[cfg(feature = "telemetry")]
+            tag
+        };
+        let answer = self.adnl.query(&boxed).await
             .map_err(|err| error!("Error receiving answer: {}", err))?;
         match answer.downcast::<ControlQueryError>() {
             Err(answer) => match command_receive(name, answer) {

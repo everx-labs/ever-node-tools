@@ -4,6 +4,8 @@ version = "0.1.35"
 edition = "2018"
 build = "common/build/build.rs"
 
+[workspace]
+
 [dependencies]
 base64 = "0.11.0"
 failure = "0.1.6"
@@ -18,12 +20,20 @@ clap = "2.33.3"
 adnl = { git = "https://github.com/tonlabs/ton-labs-adnl.git", features = ["client"] }
 dht = { git = "https://github.com/tonlabs/ton-labs-dht.git" }
 overlay = { git = "https://github.com/tonlabs/ton-labs-overlay.git" }
-tokio = { version = "1.3.0", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.5.0", features = ["rt-multi-thread"] }
 ton_api = { git = "https://github.com/tonlabs/ton-labs-tl.git", package = "ton_api" }
 ton_block = { git = "https://github.com/tonlabs/ton-labs-block.git" }
 ton_block_json = { git = "https://github.com/tonlabs/ton-labs-block-json.git" }
 ton_node = { git = "https://github.com/tonlabs/ton-labs-node.git" }
 ton_types = { git = "https://github.com/tonlabs/ton-labs-types.git" }
+
+[[bin]]
+name = "adnl_resolve"
+path = "bin/adnl_resolve.rs"
+
+[[bin]]
+name = "adnl_ping"
+path = "bin/adnl_ping.rs"
 
 [[bin]]
 name = "dhtscan"
@@ -42,9 +52,18 @@ name = "keygen"
 path = "bin/keygen.rs"
 
 [[bin]]
+name = "keyid"
+path = "bin/keyid.rs"
+
+[[bin]]
 name = "print"
 path = "bin/print.rs"
 
 [[bin]]
 name = "zerostate"
 path = "bin/zerostate.rs"
+
+[features]
+default = ["telemetry"]
+telemetry = []
+
