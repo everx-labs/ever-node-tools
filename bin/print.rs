@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
             print_state(&state, brief)?;
         }
     } else if let Some(db_dir) = args.value_of("PATH") {
-        let db_config = InternalDbConfig { db_directory: db_dir.to_string() };
+        let db_config = InternalDbConfig { db_directory: db_dir.to_string(), cells_gc_interval_ms: 0 };
         let db = InternalDbImpl::new(db_config).await?;
 
         if let Some(block_id) = args.value_of("BLOCK") {

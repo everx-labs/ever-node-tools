@@ -74,6 +74,7 @@ commands! {
     GetStats, "getstats", "getstats\tget status validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
+    SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -288,6 +289,16 @@ impl SendReceive for SendMessage {
         let body = std::fs::read(&filename)
             .map_err(|e| error!("Can't read file {} with message: {}", filename, e))?;
         Ok(TLObject::new(ton::rpc::lite_server::SendMessage {body: body.into()}))
+    }
+}
+
+impl SendReceive for SetStatesGcInterval {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let interval_ms_str = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let interval_ms = u32::from_str_radix(&interval_ms_str, 10).map_err(|e| error!("can't parse <milliseconds>: {}", e))?;
+        Ok(TLObject::new(ton::rpc::engine::validator::SetStatesGcInterval {
+            interval_ms: interval_ms as i32
+        }))
     }
 }
 
