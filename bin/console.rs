@@ -7,12 +7,11 @@ use ton_api::ton::{
     engine::validator::ControlQueryError,
     rpc::engine::validator::ControlQuery,
 };
-use ton_block::{Serializable, BlockIdExt, StateInit, StateInitLib};
-use ton_types::{deserialize_tree_of_cells, error, fail, Result, BuilderData, serialize_toc};
+use ton_block::{Serializable, BlockIdExt};
+use ton_types::{error, fail, Result, BuilderData, serialize_toc};
 use std::{
     convert::TryInto,
     env,
-    io::Cursor,
     str::FromStr,
     time::Duration,
 };
@@ -331,7 +330,7 @@ impl SendReceive for GetAccountState {
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let account_state = answer.downcast::<ton_api::ton::raw::FullAccountState>()?;
 
-        let code_cell = deserialize_tree_of_cells(&mut Cursor::new(&account_state.code().0)).unwrap();
+        /*let code_cell = deserialize_tree_of_cells(&mut Cursor::new(&account_state.code().0)).unwrap();
         let data_cell = deserialize_tree_of_cells(&mut Cursor::new(&account_state.data().0)).unwrap();
 
         let state_init = StateInit {
@@ -342,16 +341,16 @@ impl SendReceive for GetAccountState {
             library: StateInitLib::default()
         };
         let state_init_raw = state_init.write_to_bytes().unwrap();
-
+        */
         params.next();
         let boc_name = params.next().unwrap().to_string();
-        std::fs::write(boc_name, state_init_raw.clone())
+        std::fs::write(boc_name, account_state.data().0.clone())
             .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
 
         Ok((format!("account state: {} {}",
-            hex::encode(&state_init_raw),
-            base64::encode(&state_init_raw)),
-            state_init_raw)
+            hex::encode(&account_state.data().0),
+            base64::encode(&account_state.data().0)),
+            account_state.data().0.clone())
         )
     }
 }
