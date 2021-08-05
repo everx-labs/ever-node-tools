@@ -578,6 +578,7 @@ async fn main() {
             .long("cmd")
             .help("schedule command")
             .multiple(true)
+            .allow_hyphen_values(true)
             .takes_value(true)
             .number_of_values(1))
         .arg(Arg::with_name("TIMEOUT")
