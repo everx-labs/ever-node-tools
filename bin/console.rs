@@ -1,10 +1,14 @@
-use adnl::common::{KeyOption, serialize};
+use adnl::common::{KeyOption, serialize, TaggedTlObject};
+#[cfg(feature = "telemetry")]
+use adnl::common::tag_from_object;
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
 use clap::{Arg, App};
-use ton_api::ton::{
-    self, TLObject, 
-    engine::validator::ControlQueryError,
-    rpc::engine::validator::ControlQuery,
+use ton_api::{
+    ton::{
+        self, TLObject, 
+        engine::validator::ControlQueryError,
+        rpc::engine::validator::ControlQuery,
+    }
 };
 use ton_block::{Serializable, BlockIdExt};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
@@ -74,6 +78,7 @@ commands! {
     GetStats, "getstats", "getstats\tget status validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
+    SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -291,6 +296,16 @@ impl SendReceive for SendMessage {
     }
 }
 
+impl SendReceive for SetStatesGcInterval {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let interval_ms_str = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let interval_ms = u32::from_str_radix(&interval_ms_str, 10).map_err(|e| error!("can't parse <milliseconds>: {}", e))?;
+        Ok(TLObject::new(ton::rpc::engine::validator::SetStatesGcInterval {
+            interval_ms: interval_ms as i32
+        }))
+    }
+}
+
 /// ControlClient
 struct ControlClient{
     config: AdnlConsoleConfigJson,
@@ -334,7 +349,14 @@ impl ControlClient {
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
         };
-        let answer = self.adnl.query(&TLObject::new(boxed)).await
+        #[cfg(feature = "telemetry")]
+        let tag = tag_from_object(&boxed);
+        let boxed = TaggedTlObject {
+            object: TLObject::new(boxed),
+            #[cfg(feature = "telemetry")]
+            tag
+        };
+        let answer = self.adnl.query(&boxed).await
             .map_err(|err| error!("Error receiving answer: {}", err))?;
         match answer.downcast::<ControlQueryError>() {
             Err(answer) => match command_receive(name, answer) {
