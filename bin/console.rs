@@ -85,7 +85,6 @@ commands! {
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
-    //CheckMessage, "checkmessage", "checkmessage <filename>\tcontains a serialized message from <filename> in blockchain"
     GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
@@ -337,20 +336,11 @@ impl SendReceive for GetConfig {
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let config_info = answer.downcast::<ton_api::ton::lite_server::ConfigInfo>()?.config_proof;
-        let config_param = String::from_utf8(config_info.config_proof.0)?;
-        Ok((format!("config param: {} {}", config_param, config_info.config_proof.0), config_info.config_proof))
+        let config_info = answer.downcast::<ton_api::ton::lite_server::ConfigInfo>()?;
+        let config_param = String::from_utf8(config_info.config_proof().0.clone()).unwrap();
+        Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
     }
 }
-/*
-impl SendReceive for CheckMessage {
-    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
-        let filename = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
-        let body = std::fs::read(&filename)
-            .map_err(|e| error!("Can't read file {} with message: {}", filename, e))?;
-        Ok(TLObject::new(ton::rpc::lite_server::SendMessage {body: body.into()}))
-    }
-}*/
 
 impl SendReceive for GetAccountState {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
@@ -389,6 +379,7 @@ impl SendReceive for GetAccountState {
             account_state.data().0.clone())
         )
     }
+}
 
 impl SendReceive for SetStatesGcInterval {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
