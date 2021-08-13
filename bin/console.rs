@@ -83,6 +83,8 @@ commands! {
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
+    //CheckMessage, "checkmessage", "checkmessage <filename>\tcontains a serialized message from <filename> in blockchain"
+    GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -315,6 +317,37 @@ impl SendReceive for SendMessage {
     }
 }
 
+impl SendReceive for GetConfig {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let param_number = parse_int(params.next(), "paramnumber")?;
+        let block_id = BlockIdExt::default();
+
+        let mut params: ton::vector<ton::Bare, ton::int> = ton::vector::default();
+        params.0.push(param_number);
+        Ok(TLObject::new(ton::rpc::lite_server::GetConfigParams {
+            mode: 0,
+            id: ton_node::block::convert_block_id_ext_blk2api(&block_id),
+            param_list: params
+        }))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let config_info = answer.downcast::<ton_api::ton::lite_server::ConfigInfo>()?.config_proof;
+        let config_param = String::from_utf8(config_info.config_proof.0)?;
+        Ok((format!("config param: {} {}", config_param, config_info.config_proof.0), config_info.config_proof))
+    }
+}
+/*
+impl SendReceive for CheckMessage {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let filename = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let body = std::fs::read(&filename)
+            .map_err(|e| error!("Can't read file {} with message: {}", filename, e))?;
+        Ok(TLObject::new(ton::rpc::lite_server::SendMessage {body: body.into()}))
+    }
+}*/
 
 impl SendReceive for GetAccountState {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
@@ -644,7 +677,7 @@ mod test {
         pub async fn with_config(node_config_path: &str) -> Result<Self> {
             let node_config = TonNodeConfig::from_file("target", node_config_path, None, "", None)?;
             let control_server_config = node_config.control_server()?;
-            let (config_handler, context) = NodeConfigHandler::create(node_config, &tokio::runtime::Handle::current())?;
+            let (config_handler, context) = NodeConfigHandler::create(node_config, tokio::runtime::Handle::current())?;
             NodeConfigHandler::start_sheduler(config_handler.clone(), context, vec![])?;
             let config = control_server_config.expect("must have control server setting");
             let control = ControlServer::with_config(
