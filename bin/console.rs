@@ -1,4 +1,4 @@
-use adnl::common::{KeyOption, serialize, TaggedTlObject};
+use adnl::common::{KeyOption, deserialize, serialize, TaggedTlObject};
 #[cfg(feature = "telemetry")]
 use adnl::common::tag_from_object;
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
@@ -84,7 +84,8 @@ commands! {
     GetStats, "getstats", "getstats\tget status validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
-    GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
+    GetAccountState, "getaccountstate", "getaccountstate <account id> <workchain> <file name>\tsave accountstate to file"
+    //GetAccount, "getaccount", "getaccount <account id> <workchain> <Option<file name>>\tget account info"
     GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
@@ -341,20 +342,54 @@ impl SendReceive for GetConfig {
         Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
     }
 }
-
-impl SendReceive for GetAccountState {
+/*
+impl SendReceive for GetAccount {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-        Ok(TLObject::new(ton::rpc::raw::GetAccountState {account_address: account }))
+        let workchain = parse_int(params.next(), "workchain")?;
+        Ok(TLObject::new(ton::rpc::raw::GetAccount {account_address: account, workchain: workchain }))
     }
 
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let account_state = answer.downcast::<ton_api::ton::raw::FullAccountState>()?;
+        let raw_account_state = answer.downcast::<ton_api::ton::data::Data>()?;
+        let account_state: FullAccountState = deserialize(raw_account_state.bytes.0);
+
+        params.next();
+        let boc_name = params.next().unwrap().to_string();
+        std::fs::write(boc_name, account_state.data().0.clone())
+            .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
+
+        Ok((format!("account state: {} {}",
+            hex::encode(&account_state.data().0),
+            base64::encode(&account_state.data().0)),
+            account_state.data().0.clone())
+        )
+    }
+}*/
+
+impl SendReceive for GetAccountState {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let account = AccountAddress { 
+            account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
+        };
+        let workchain = parse_int(params.next(), "workchain")?;
+        let get_account = ton::rpc::raw::GetAccount { account_address: account, workchain: workchain }; 
+        Ok(TLObject::new(get_account))
+    }
+
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
+
+        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
+        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
 
         /*let code_cell = deserialize_tree_of_cells(&mut Cursor::new(&account_state.code().0)).unwrap();
         let data_cell = deserialize_tree_of_cells(&mut Cursor::new(&account_state.data().0)).unwrap();
