@@ -9,7 +9,7 @@ use ton_api::ton::{
     engine::validator::ControlQueryError,
     rpc::engine::validator::ControlQuery,
 };
-use ton_block::{Serializable, BlockIdExt};
+use ton_block::{AccountStatus, Deserializable, BlockIdExt, Serializable};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
 use std::{
     convert::TryInto,
@@ -85,7 +85,7 @@ commands! {
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     GetAccountState, "getaccountstate", "getaccountstate <account id> <workchain> <file name>\tsave accountstate to file"
-    //GetAccount, "getaccount", "getaccount <account id> <workchain> <Option<file name>>\tget account info"
+    GetAccount, "getaccount", "getaccount <account id> <workchain> <Option<file name>>\tget account info"
     GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
@@ -342,7 +342,7 @@ impl SendReceive for GetConfig {
         Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
     }
 }
-/*
+
 impl SendReceive for GetAccount {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let account = AccountAddress { 
@@ -356,21 +356,35 @@ impl SendReceive for GetAccount {
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let raw_account_state = answer.downcast::<ton_api::ton::data::Data>()?;
-        let account_state: FullAccountState = deserialize(raw_account_state.bytes.0);
+        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
+
+        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
+        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
 
         params.next();
-        let boc_name = params.next().unwrap().to_string();
-        std::fs::write(boc_name, account_state.data().0.clone())
-            .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
 
-        Ok((format!("account state: {} {}",
-            hex::encode(&account_state.data().0),
-            base64::encode(&account_state.data().0)),
-            account_state.data().0.clone())
-        )
+        let account_type = match AccountStatus::construct_from_bytes(&account_state.frozen_hash()).unwrap() {
+            AccountStatus::AccStateUninit => "Uninit",
+            AccountStatus::AccStateFrozen => "Frozen",
+            AccountStatus::AccStateActive => "Active",
+            AccountStatus::AccStateNonexist => "Nonexist"
+        };
+
+        let mut account_info = String::from("{");
+
+        account_info.push_str("acc_type:\t");
+        account_info.push_str(&account_type);
+        //account_info.push_str("\n");
+
+        account_info.push_str("\n}");
+
+        let boc_name = params.next().unwrap().to_string();
+        //std::fs::write(boc_name, account_state.data().0.clone())
+        //    .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
+
+        Ok((account_info.clone(), account_info.as_bytes().to_vec()))
     }
-}*/
+}
 
 impl SendReceive for GetAccountState {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
