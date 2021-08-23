@@ -84,8 +84,8 @@ commands! {
     GetStats, "getstats", "getstats\tget status validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
-    GetAccountState, "getaccountstate", "getaccountstate <account id> <workchain> <file name>\tsave accountstate to file"
-    GetAccount, "getaccount", "getaccount <account id> <workchain> <Option<file name>>\tget account info"
+    GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
+    GetAccount, "getaccount", "getaccount <account id> <Option<file name>>\tget account info"
     GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
@@ -348,7 +348,10 @@ impl SendReceive for GetAccount {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-        let workchain = parse_int(params.next(), "workchain")?;
+
+        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
+
+        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
         Ok(TLObject::new(ton::rpc::raw::GetAccount {account_address: account, workchain: workchain }))
     }
 
@@ -404,7 +407,9 @@ impl SendReceive for GetAccountState {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-        let workchain = parse_int(params.next(), "workchain")?;
+        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
+        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
+
         let get_account = ton::rpc::raw::GetAccount { account_address: account, workchain: workchain }; 
         Ok(TLObject::new(get_account))
     }
