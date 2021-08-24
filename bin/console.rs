@@ -684,11 +684,10 @@ async fn main() {
             .short("j")
             .long("json")
             .help("output in json format")
-            .takes_value(true)
-            .number_of_values(1))
+            .takes_value(false))
         .get_matches();
 
-    if args.value_of("JSON").is_none() {
+    if !args.is_present("JSON") {
         println!(
             "tonlabs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
             env!("CARGO_PKG_VERSION"),
