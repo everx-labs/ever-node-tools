@@ -380,21 +380,21 @@ impl SendReceive for GetAccount {
 
         let mut account_info = String::from("{");
         account_info.push_str("\n\"");
-        account_info.push_str("acc_type\":\t");
+        account_info.push_str("acc_type\":\t\"");
         account_info.push_str(&account_type);
-        account_info.push_str(",\n\"");
+        account_info.push_str("\",\n\"");
         account_info.push_str("balance\":\t");
         account_info.push_str(&balance.to_string());
         account_info.push_str(",\n\"");
         account_info.push_str("last_paid\":\t");
         account_info.push_str(&account.last_paid().to_string());
         account_info.push_str(",\n\"");
-        account_info.push_str("last_trans_lt\":\t");
+        account_info.push_str("last_trans_lt\":\t\"");
         account_info.push_str(&format!("{:#x}", account_state.last_transaction_id().lt));
-        account_info.push_str(",\n\"");
-        account_info.push_str("data(boc)\":\t");
+        account_info.push_str("\",\n\"");
+        account_info.push_str("data(boc)\":\t\"");
         account_info.push_str(&hex::encode(&account_state.data().0));
-        account_info.push_str("\n}");
+        account_info.push_str("\"\n}");
 
         let account_data = account_info.as_bytes().to_vec();
         if let Some(boc_name) = params.next() {
