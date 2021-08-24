@@ -150,7 +150,11 @@ impl SendReceive for GetStats {
             description.push_str("\n\t\"");
             description.push_str(&stat.key);
             description.push_str("\":\t");
-            description.push_str(&stat.value);
+            let value = match &stat.value.is_empty() {
+                true => "null",
+                false => &stat.value,
+            };
+            description.push_str(value);
             description.push_str(",");
         }
         description.pop();
