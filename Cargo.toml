@@ -1,6 +1,6 @@
 [package]
 name = "ton-node-tools"
-version = "0.1.87"
+version = "0.1.88"
 edition = "2018"
 build = "common/build/build.rs"
 
