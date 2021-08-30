@@ -9,7 +9,7 @@ use ton_api::ton::{
     engine::validator::ControlQueryError,
     rpc::engine::validator::ControlQuery,
 };
-use ton_block::{Account, AccountStatus, Deserializable, BlockIdExt, Serializable};
+use ton_block::{ShardAccount, AccountStatus, Deserializable, BlockIdExt, Serializable};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
 use std::{
     convert::TryInto,
@@ -352,31 +352,26 @@ impl SendReceive for GetAccount {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-
-        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
-
-        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
-        Ok(TLObject::new(ton::rpc::raw::GetAccount {account_address: account, workchain: workchain }))
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address: account}))
     }
 
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
+        println!("123");
+        let shard_account_state = answer.downcast::<ton_api::ton::raw::ShardAccountState>()?;
 
-        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
-        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
-
-        let account_type = match AccountStatus::construct_from_bytes(&account_state.frozen_hash()).unwrap() {
+    /*    let account_type = match AccountStatus::construct_from_bytes(&account_state.frozen_hash()).unwrap() {
             AccountStatus::AccStateUninit => "Uninit",
             AccountStatus::AccStateFrozen => "Frozen",
             AccountStatus::AccStateActive => "Active",
             AccountStatus::AccStateNonexist => "Nonexist"
-        };
+        };*/
 
-        let account = Account::construct_from_bytes(&account_state.data()).unwrap();
-        let balance = account.balance().map_or(0, |val| val.grams.0);
+        let account = ShardAccount::construct_from_bytes(&shard_account_state.shard_account().0).unwrap();
+        let mut account_info = String::from("{..}");
+/*        let balance = account.balance().map_or(0, |val| val.grams.0);
 
         let mut account_info = String::from("{");
         account_info.push_str("\n\"");
@@ -394,7 +389,7 @@ impl SendReceive for GetAccount {
         account_info.push_str("\",\n\"");
         account_info.push_str("data(boc)\":\t\"");
         account_info.push_str(&hex::encode(&account_state.data().0));
-        account_info.push_str("\"\n}");
+        account_info.push_str("\"\n}");*/
 
         let account_data = account_info.as_bytes().to_vec();
         if let Some(boc_name) = params.next() {
@@ -1027,6 +1022,14 @@ mod test {
     async fn test_new_key_one() {
         let cmd = "newkey";
         test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_account() {
+        let account = "-1:7777777777777777777777777777777777777777777777777777777777777777";
+        let cmd = format!(r#"getaccount {}"#, account);
+        println!("{}", &cmd);
+        test_one_cmd(&cmd, |result| {println!("{:?}", result)}).await;
     }
 
     #[tokio::test]
