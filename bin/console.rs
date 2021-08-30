@@ -1,16 +1,15 @@
-use adnl::common::{KeyOption, serialize, TaggedTlObject};
+use adnl::common::{KeyOption, deserialize, serialize, TaggedTlObject};
 #[cfg(feature = "telemetry")]
 use adnl::common::tag_from_object;
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
 use clap::{Arg, App};
-use ton_api::{
-    ton::{
-        self, TLObject, 
-        engine::validator::ControlQueryError,
-        rpc::engine::validator::ControlQuery,
-    }
+use ton_api::ton::{
+    self, TLObject, 
+    accountaddress::AccountAddress,
+    engine::validator::ControlQueryError,
+    rpc::engine::validator::ControlQuery,
 };
-use ton_block::{Serializable, BlockIdExt};
+use ton_block::{Account, AccountStatus, Deserializable, BlockIdExt, Serializable};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
 use std::{
     convert::TryInto,
@@ -24,7 +23,10 @@ include!("../common/src/test.rs");
 
 trait SendReceive {
     fn send<Q: ToString>(params: impl Iterator<Item = Q>) -> Result<TLObject>;
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         answer.downcast::<ton_api::ton::engine::validator::Success>()?;
         Ok(("success".to_string(), vec![]))
     }
@@ -56,9 +58,13 @@ macro_rules! commands {
                 _ => fail!("command {} not supported", name)
             }
         }
-        fn command_receive(name: &str, answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        fn command_receive<Q: ToString>(
+            name: &str,
+            answer: TLObject,
+            params: impl Iterator<Item = Q>
+        ) -> std::result::Result<(String, Vec<u8>), TLObject> {
             match name {
-                $($name => $command::receive(answer), )*
+                $($name => $command::receive(answer, params), )*
                 _ => Err(answer)
             }
         }
@@ -78,6 +84,9 @@ commands! {
     GetStats, "getstats", "getstats\tget status validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
+    GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
+    GetAccount, "getaccount", "getaccount <account id> <Option<file name>>\tget account info"
+    GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
 
@@ -130,7 +139,10 @@ impl SendReceive for GetStats {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GetStats))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let data = serialize(&answer).unwrap();
         let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
         let mut description = String::from("{");
@@ -138,7 +150,11 @@ impl SendReceive for GetStats {
             description.push_str("\n\t\"");
             description.push_str(&stat.key);
             description.push_str("\":\t");
-            description.push_str(&stat.value);
+            let value = match &stat.value.is_empty() {
+                true => "null",
+                false => &stat.value,
+            };
+            description.push_str(value);
             description.push_str(",");
         }
         description.pop();
@@ -151,7 +167,10 @@ impl SendReceive for GetSessionStats {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GetSessionStats))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let data = serialize(&answer).unwrap();
         let stats = answer.downcast::<ton_api::ton::engine::validator::SessionStats>()?;
         let mut description = String::from("{");
@@ -179,7 +198,10 @@ impl SendReceive for NewKeypair {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let key_hash = answer.downcast::<ton_api::ton::engine::validator::KeyHash>()?.key_hash().0.to_vec();
         Ok((format!("received public key hash: {} {}", hex::encode(&key_hash), base64::encode(&key_hash)), key_hash))
     }
@@ -192,7 +214,10 @@ impl SendReceive for ExportPub {
             key_hash
         }))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let pub_key = answer.downcast::<ton_api::ton::PublicKey>()?.key().unwrap().0.to_vec();
         Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
@@ -207,7 +232,10 @@ impl SendReceive for Sign {
             data
         }))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
         let signature = answer.downcast::<ton_api::ton::engine::validator::Signature>()?.signature().0.clone();
         Ok((format!("got signature: {} {}", hex::encode(&signature), base64::encode(&signature)), signature))
     }
@@ -296,6 +324,122 @@ impl SendReceive for SendMessage {
     }
 }
 
+impl SendReceive for GetConfig {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let param_number = parse_int(params.next(), "paramnumber")?;
+        let block_id = BlockIdExt::default();
+
+        let mut params: ton::vector<ton::Bare, ton::int> = ton::vector::default();
+        params.0.push(param_number);
+        Ok(TLObject::new(ton::rpc::lite_server::GetConfigParams {
+            mode: 0,
+            id: ton_node::block::convert_block_id_ext_blk2api(&block_id),
+            param_list: params
+        }))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let config_info = answer.downcast::<ton_api::ton::lite_server::ConfigInfo>()?;
+        let config_param = String::from_utf8(config_info.config_proof().0.clone()).unwrap();
+        Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
+    }
+}
+
+impl SendReceive for GetAccount {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let account = AccountAddress { 
+            account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
+        };
+
+        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
+
+        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
+        Ok(TLObject::new(ton::rpc::raw::GetAccount {account_address: account, workchain: workchain }))
+    }
+
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
+
+        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
+        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
+
+        let account_type = match AccountStatus::construct_from_bytes(&account_state.frozen_hash()).unwrap() {
+            AccountStatus::AccStateUninit => "Uninit",
+            AccountStatus::AccStateFrozen => "Frozen",
+            AccountStatus::AccStateActive => "Active",
+            AccountStatus::AccStateNonexist => "Nonexist"
+        };
+
+        let account = Account::construct_from_bytes(&account_state.data()).unwrap();
+        let balance = account.balance().map_or(0, |val| val.grams.0);
+
+        let mut account_info = String::from("{");
+        account_info.push_str("\n\"");
+        account_info.push_str("acc_type\":\t\"");
+        account_info.push_str(&account_type);
+        account_info.push_str("\",\n\"");
+        account_info.push_str("balance\":\t");
+        account_info.push_str(&balance.to_string());
+        account_info.push_str(",\n\"");
+        account_info.push_str("last_paid\":\t");
+        account_info.push_str(&account.last_paid().to_string());
+        account_info.push_str(",\n\"");
+        account_info.push_str("last_trans_lt\":\t\"");
+        account_info.push_str(&format!("{:#x}", account_state.last_transaction_id().lt));
+        account_info.push_str("\",\n\"");
+        account_info.push_str("data(boc)\":\t\"");
+        account_info.push_str(&hex::encode(&account_state.data().0));
+        account_info.push_str("\"\n}");
+
+        let account_data = account_info.as_bytes().to_vec();
+        if let Some(boc_name) = params.next() {
+            std::fs::write(boc_name.to_string(), &account_data)
+                .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
+        }
+
+        Ok((account_info.clone(), account_data))
+    }
+}
+
+impl SendReceive for GetAccountState {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let account = AccountAddress { 
+            account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
+        };
+        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
+        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
+
+        let get_account = ton::rpc::raw::GetAccount { account_address: account, workchain: workchain }; 
+        Ok(TLObject::new(get_account))
+    }
+
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut params: impl Iterator<Item = Q>
+    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
+
+        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
+        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
+
+        params.next();
+        let boc_name = params.next().unwrap().to_string();
+        std::fs::write(boc_name, account_state.data().0.clone())
+            .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
+
+        Ok((format!("account state: {} {}",
+            hex::encode(&account_state.data().0),
+            base64::encode(&account_state.data().0)),
+            account_state.data().0.clone())
+        )
+    }
+}
+
 impl SendReceive for SetStatesGcInterval {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let interval_ms_str = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
@@ -344,8 +488,12 @@ impl ControlClient {
         }
     }
 
-    async fn process_command<Q: ToString>(&mut self, name: &str, params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
-        let query = command_send(name, params)?;
+    async fn process_command<Q: ToString>(
+        &mut self,
+        name: &str,
+        params: impl Iterator<Item = Q> + Clone
+    ) -> Result<(String, Vec<u8>)> {
+        let query = command_send(name, params.clone())?;
         let boxed = ControlQuery {
             data: ton::bytes(serialize(&query)?)
         };
@@ -359,7 +507,7 @@ impl ControlClient {
         let answer = self.adnl.query(&boxed).await
             .map_err(|err| error!("Error receiving answer: {}", err))?;
         match answer.downcast::<ControlQueryError>() {
-            Err(answer) => match command_receive(name, answer) {
+            Err(answer) => match command_receive(name, answer, params) {
                 Err(answer) => fail!("Wrong response to {:?}: {:?}", query, answer),
                 Ok(result) => Ok(result)
             }
@@ -407,27 +555,27 @@ impl ControlClient {
         }
         let max_factor = (max_factor * 65536.0) as u32;
 
-        let (s, perm) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
+        let (s, perm) = self.process_command("newkey", Vec::<String>::new().iter()).await?;
         log::trace!("{}", s);
         let perm_str = &hex::encode_upper(&perm)[..];
 
-        let (s, pub_key) = self.process_command("exportpub", vec![perm_str].drain(..)).await?;
+        let (s, pub_key) = self.process_command("exportpub", vec![perm_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addtempkey", vec![perm_str, perm_str, expire_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addtempkey", vec![perm_str, perm_str, expire_time_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, adnl) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
+        let (s, adnl) = self.process_command("newkey", Vec::<String>::new().iter()).await?;
         log::trace!("{}", s);
         let adnl_str = &hex::encode_upper(&adnl)[..];
 
-        let (s, _) = self.process_command("addadnl", vec![adnl_str, "0"].drain(..)).await?;
+        let (s, _) = self.process_command("addadnl", vec![adnl_str, "0"].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].iter()).await?;
         log::trace!("{}", s);
 
         // validator-elect-req.fif
@@ -438,7 +586,7 @@ impl ControlClient {
         data.extend_from_slice(&adnl);
         log::trace!("data to sign {}", hex::encode_upper(&data));
         let data_str = &hex::encode_upper(&data)[..];
-        let (s, signature) = self.process_command("sign", vec![perm_str, data_str].drain(..)).await?;
+        let (s, signature) = self.process_command("sign", vec![perm_str, data_str].iter()).await?;
         log::trace!("{}", s);
         KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
             .verify(&data, &signature)?;
@@ -508,14 +656,6 @@ struct AdnlConsoleConfigJson {
 
 #[tokio::main]
 async fn main() {
-    println!(
-        "tonlabs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
-        env!("CARGO_PKG_VERSION"),
-        env!("BUILD_GIT_COMMIT"),
-        env!("BUILD_TIME") ,
-        env!("BUILD_GIT_DATE"),
-        env!("BUILD_GIT_BRANCH")
-    );
     // init_test_log();
     let args = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
@@ -528,19 +668,35 @@ async fn main() {
             .takes_value(true)
             .number_of_values(1))
         .arg(Arg::with_name("COMMANDS")
+            .allow_hyphen_values(true)
             .short("c")
             .long("cmd")
             .help("schedule command")
             .multiple(true)
-            .takes_value(true)
-            .number_of_values(1))
+            .takes_value(true))
         .arg(Arg::with_name("TIMEOUT")
             .short("t")
             .long("timeout")
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
+        .arg(Arg::with_name("JSON")
+            .short("j")
+            .long("json")
+            .help("output in json format")
+            .takes_value(false))
         .get_matches();
+
+    if !args.is_present("JSON") {
+        println!(
+            "tonlabs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
+            env!("CARGO_PKG_VERSION"),
+            env!("BUILD_GIT_COMMIT"),
+            env!("BUILD_TIME") ,
+            env!("BUILD_GIT_DATE"),
+            env!("BUILD_GIT_BRANCH")
+        );
+    }
 
     let config = args.value_of("CONFIG").expect("required set for config");
     let config = std::fs::read_to_string(config).expect("Can't read config file");
@@ -598,12 +754,15 @@ mod test {
         pub async fn with_config(node_config_path: &str) -> Result<Self> {
             let node_config = TonNodeConfig::from_file("target", node_config_path, None, "", None)?;
             let control_server_config = node_config.control_server()?;
-            let config_handler = Arc::new(NodeConfigHandler::new(node_config)?);
+            let (config_handler, context) = NodeConfigHandler::create(node_config, tokio::runtime::Handle::current())?;
+            NodeConfigHandler::start_sheduler(config_handler.clone(), context, vec![])?;
             let config = control_server_config.expect("must have control server setting");
-            let control = ControlServer::with_config(config, None, config_handler.clone(), config_handler.clone()).await?;
+            let control = ControlServer::with_config(
+                config, None, config_handler.clone(), config_handler.clone()
+            ).await?;
 
             Ok(Self {
-                _config_handler: config_handler,
+                _config_handler: config_handler.clone(),
                 control
             })
         }
