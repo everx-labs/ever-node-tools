@@ -1,7 +1,14 @@
 use clap::{Arg, App};
-use std::str::FromStr;
-use ton_block::{AccountIdPrefixFull, BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord};
-use ton_node::internal_db::{InternalDb, InternalDbConfig, InternalDbImpl};
+use std::{str::FromStr, sync::{Arc, atomic::AtomicU64}};
+use storage::StorageAlloc;
+use ton_block::{
+    AccountIdPrefixFull, BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord
+};
+use ton_node::{
+    engine_traits::EngineAlloc, internal_db::{InternalDb, InternalDbConfig, InternalDbImpl}
+};
+#[cfg(feature = "telemetry")]
+use ton_node::collator_test_bundle::create_engine_telemetry;
 use ton_types::{error, Result};
 
 fn print_block(block: &Block, brief: bool) -> Result<()> {
@@ -112,9 +119,35 @@ async fn main() -> Result<()> {
             print_state(&state, brief)?;
         }
     } else if let Some(db_dir) = args.value_of("PATH") {
-        let db_config = InternalDbConfig { db_directory: db_dir.to_string(), cells_gc_interval_ms: 0 };
-        let db = InternalDbImpl::new(db_config).await?;
-
+        let db_config = InternalDbConfig { 
+            db_directory: db_dir.to_string(), 
+            cells_gc_interval_ms: 0
+        };
+        let storage_allocated = Arc::new(
+            StorageAlloc {
+                handles: Arc::new(AtomicU64::new(0)),
+                storage_cells: Arc::new(AtomicU64::new(0))
+            }
+        );
+        let engine_allocated = Arc::new(
+            EngineAlloc {
+                storage: storage_allocated,
+                awaiters: Arc::new(AtomicU64::new(0)),
+                catchain_clients: Arc::new(AtomicU64::new(0)),
+                overlay_clients: Arc::new(AtomicU64::new(0)),
+                peer_stats: Arc::new(AtomicU64::new(0)),
+                shard_states: Arc::new(AtomicU64::new(0)),
+                top_blocks: Arc::new(AtomicU64::new(0)),
+                validator_peers: Arc::new(AtomicU64::new(0)),
+                validator_sets: Arc::new(AtomicU64::new(0))
+            }
+        );
+        let db = InternalDbImpl::new(
+            db_config, 
+            #[cfg(feature = "telemetry")]
+            create_engine_telemetry(),
+            engine_allocated
+        ).await?;
         if let Some(block_id) = args.value_of("BLOCK") {
             let block_id = get_block_id(&db, block_id)?;
             print_db_block(&db, block_id, brief).await?;
