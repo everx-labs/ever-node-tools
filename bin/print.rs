@@ -1,11 +1,11 @@
 use clap::{Arg, App};
-use std::{str::FromStr, sync::{Arc, atomic::AtomicU64}};
-use storage::StorageAlloc;
+use std::str::FromStr;
 use ton_block::{
     AccountIdPrefixFull, BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord
 };
 use ton_node::{
-    engine_traits::EngineAlloc, internal_db::{InternalDb, InternalDbConfig, InternalDbImpl}
+    collator_test_bundle::create_engine_allocated, 
+    internal_db::{InternalDb, InternalDbConfig, InternalDbImpl}
 };
 #[cfg(feature = "telemetry")]
 use ton_node::collator_test_bundle::create_engine_telemetry;
@@ -123,30 +123,11 @@ async fn main() -> Result<()> {
             db_directory: db_dir.to_string(), 
             cells_gc_interval_ms: 0
         };
-        let storage_allocated = Arc::new(
-            StorageAlloc {
-                handles: Arc::new(AtomicU64::new(0)),
-                storage_cells: Arc::new(AtomicU64::new(0))
-            }
-        );
-        let engine_allocated = Arc::new(
-            EngineAlloc {
-                storage: storage_allocated,
-                awaiters: Arc::new(AtomicU64::new(0)),
-                catchain_clients: Arc::new(AtomicU64::new(0)),
-                overlay_clients: Arc::new(AtomicU64::new(0)),
-                peer_stats: Arc::new(AtomicU64::new(0)),
-                shard_states: Arc::new(AtomicU64::new(0)),
-                top_blocks: Arc::new(AtomicU64::new(0)),
-                validator_peers: Arc::new(AtomicU64::new(0)),
-                validator_sets: Arc::new(AtomicU64::new(0))
-            }
-        );
         let db = InternalDbImpl::new(
             db_config, 
             #[cfg(feature = "telemetry")]
             create_engine_telemetry(),
-            engine_allocated
+            create_engine_allocated()
         ).await?;
         if let Some(block_id) = args.value_of("BLOCK") {
             let block_id = get_block_id(&db, block_id)?;
