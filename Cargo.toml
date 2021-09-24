@@ -1,6 +1,6 @@
 [package]
 name = "ton-node-tools"
-version = "0.1.144"
+version = "0.1.145"
 edition = "2018"
 build = "common/build/build.rs"
 
@@ -66,4 +66,3 @@ path = "bin/zerostate.rs"
 [features]
 default = ["telemetry"]
 telemetry = ["adnl/telemetry", "dht/telemetry", "overlay/telemetry"]
-
