@@ -7,9 +7,10 @@ use ton_api::ton::{
     self, TLObject, 
     accountaddress::AccountAddress,
     engine::validator::ControlQueryError,
+    raw::ShardAccountState,
     rpc::engine::validator::ControlQuery,
 };
-use ton_block::{Account, AccountStatus, Deserializable, BlockIdExt, Serializable};
+use ton_block::{AccountStatus, ShardAccount, Deserializable, BlockIdExt, Serializable};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc};
 use std::{
     convert::TryInto,
@@ -352,50 +353,53 @@ impl SendReceive for GetAccount {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-
-        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
-
-        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
-        Ok(TLObject::new(ton::rpc::raw::GetAccount {account_address: account, workchain: workchain }))
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address: account}))
     }
 
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
-
-        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
-        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
-
-        let account_type = match AccountStatus::construct_from_bytes(&account_state.frozen_hash()).unwrap() {
-            AccountStatus::AccStateUninit => "Uninit",
-            AccountStatus::AccStateFrozen => "Frozen",
-            AccountStatus::AccStateActive => "Active",
-            AccountStatus::AccStateNonexist => "Nonexist"
-        };
-
-        let account = Account::construct_from_bytes(&account_state.data()).unwrap();
-        let balance = account.balance().map_or(0, |val| val.grams.0);
-
+        let shard_account_state = answer.downcast::<ShardAccountState>()?;
         let mut account_info = String::from("{");
         account_info.push_str("\n\"");
         account_info.push_str("acc_type\":\t\"");
-        account_info.push_str(&account_type);
-        account_info.push_str("\",\n\"");
-        account_info.push_str("balance\":\t");
-        account_info.push_str(&balance.to_string());
-        account_info.push_str(",\n\"");
-        account_info.push_str("last_paid\":\t");
-        account_info.push_str(&account.last_paid().to_string());
-        account_info.push_str(",\n\"");
-        account_info.push_str("last_trans_lt\":\t\"");
-        account_info.push_str(&format!("{:#x}", account_state.last_transaction_id().lt));
-        account_info.push_str("\",\n\"");
-        account_info.push_str("data(boc)\":\t\"");
-        account_info.push_str(&hex::encode(&account_state.data().0));
+
+        match shard_account_state {
+            ShardAccountState::Raw_ShardAccountNone => {
+                account_info.push_str(&"Nonexist");
+            },
+            ShardAccountState::Raw_ShardAccountState(account_state) => {
+                let shard_account = ShardAccount::construct_from_bytes(&account_state.shard_account).unwrap();
+                let account = shard_account.read_account().unwrap();
+
+                let account_type = match account.status() {
+                    AccountStatus::AccStateUninit => "Uninit",
+                    AccountStatus::AccStateFrozen => "Frozen",
+                    AccountStatus::AccStateActive => "Active",
+                    AccountStatus::AccStateNonexist => "Nonexist"
+                };
+                let balance = account.balance().map_or(0, |val| val.grams.0);
+                account_info.push_str(&account_type);
+                account_info.push_str("\",\n\"");
+                account_info.push_str("balance\":\t");
+                account_info.push_str(&balance.to_string());
+                account_info.push_str(",\n\"");
+                account_info.push_str("last_paid\":\t");
+                account_info.push_str(&account.last_paid().to_string());
+                account_info.push_str(",\n\"");
+                account_info.push_str("last_trans_lt\":\t\"");
+                account_info.push_str(&format!("{:#x}", shard_account.last_trans_lt()));
+                account_info.push_str("\",\n\"");
+                account_info.push_str("data(boc)\":\t\"");
+                account_info.push_str(
+                    &hex::encode(&serialize_toc(&shard_account.account_cell()).unwrap())
+                );
+            }
+        }
         account_info.push_str("\"\n}");
 
+        params.next();
         let account_data = account_info.as_bytes().to_vec();
         if let Some(boc_name) = params.next() {
             std::fs::write(boc_name.to_string(), &account_data)
@@ -1027,6 +1031,30 @@ mod test {
     async fn test_new_key_one() {
         let cmd = "newkey";
         test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexist_account() {
+        let account = "-1:5555555555555555555555555555555555555555555555555555555555555555";
+        let cmd = format!(r#"getaccount {}"#, account);
+        let mut etalon_result = String::from("{");
+        etalon_result.push_str("\n\"");
+        etalon_result.push_str("acc_type\":\t\"Nonexist");
+        etalon_result.push_str("\"\n}");
+
+        test_one_cmd(&cmd, |result| assert_eq!(result, etalon_result.as_bytes().to_vec())).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_active_account() {
+        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
+        let cmd = format!(r#"getaccount {}"#, account);
+        let mut etalon_result = String::from("{");
+        etalon_result.push_str("\n\"");
+        etalon_result.push_str("acc_type\":\t\"Active");
+        let etalon_result = etalon_result.as_bytes().to_vec();
+
+        test_one_cmd(&cmd, |result| assert_eq!(result[..etalon_result.len()], etalon_result)).await;
     }
 
     #[tokio::test]
