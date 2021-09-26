@@ -415,31 +415,31 @@ impl SendReceive for GetAccountState {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
-        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
 
-        let get_account = ton::rpc::raw::GetAccount { account_address: account, workchain: workchain }; 
-        Ok(TLObject::new(get_account))
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address: account}))
     }
 
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
     ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
-
-        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
-        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
+        let shard_account_state = answer.downcast::<ShardAccountState>()?;
 
         params.next();
         let boc_name = params.next().unwrap().to_string();
-        std::fs::write(boc_name, account_state.data().0.clone())
+        let shard_account_state = shard_account_state
+            .shard_account()
+            .ok_or_else(|| error!("account not found!")).unwrap();
+        
+        let shard_account = ShardAccount::construct_from_bytes(&shard_account_state).unwrap();
+        let account_state = serialize_toc(&shard_account.account_cell()).unwrap();
+        std::fs::write(boc_name, account_state.clone())
             .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
 
         Ok((format!("account state: {} {}",
-            hex::encode(&account_state.data().0),
-            base64::encode(&account_state.data().0)),
-            account_state.data().0.clone())
+            hex::encode(&account_state),
+            base64::encode(&account_state)),
+            account_state)
         )
     }
 }
@@ -1056,6 +1056,20 @@ mod test {
 
         test_one_cmd(&cmd, |result| assert_eq!(result[..etalon_result.len()], etalon_result)).await;
     }
+
+    #[tokio::test]
+    async fn test_get_account_state() {
+        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
+        let cmd = format!(r#"getaccountstate {} {}"#, account, "test_file.boc");
+        test_one_cmd(
+            &cmd, |result| { 
+                assert_eq!(result.len(), 257);
+                std::fs::remove_file("test_file.boc").unwrap();
+            }
+        ).await;
+    }
+
+
 
     #[tokio::test]
     async fn test_validator_status() {
