@@ -99,7 +99,6 @@ fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl
 }
 
 fn downcast<T: ton_api::AnyBoxedSerialize>(data: TLObject) -> Result<T> {
-
     match data.downcast::<T>() {
         Ok(result) => Ok(result),
         Err(obj) => fail!("Wrong downcast {:?} to {}", obj, std::any::type_name::<T>())
