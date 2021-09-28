@@ -1,4 +1,4 @@
-use adnl::common::{KeyOption, deserialize, serialize, TaggedTlObject};
+use adnl::common::{KeyOption, serialize, TaggedTlObject};
 #[cfg(feature = "telemetry")]
 use adnl::common::tag_from_object;
 use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
@@ -27,8 +27,8 @@ trait SendReceive {
     fn receive<Q: ToString>(
         answer: TLObject, 
         _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        answer.downcast::<ton_api::ton::engine::validator::Success>()?;
+    ) -> Result<(String, Vec<u8>)> {
+        downcast::<ton_api::ton::engine::validator::Success>(answer)?;
         Ok(("success".to_string(), vec![]))
     }
 }
@@ -63,10 +63,10 @@ macro_rules! commands {
             name: &str,
             answer: TLObject,
             params: impl Iterator<Item = Q>
-        ) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        ) -> Result<(String, Vec<u8>)> {
             match name {
                 $($name => $command::receive(answer, params), )*
-                _ => Err(answer)
+                _ => fail!("an error occured while receiving a response (command: {})", name)
             }
         }
     };
@@ -96,6 +96,13 @@ fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl
         .ok_or_else(|| error!("insufficient parameters"))
         .and_then(|value| parse_value(value.to_string().trim_matches('\"')))
         .map_err(|err| error!("you must give {}: {}", name, err))
+}
+
+fn downcast<T: ton_api::AnyBoxedSerialize>(data: TLObject) -> Result<T> {
+    match data.downcast::<T>() {
+        Ok(result) => Ok(result),
+        Err(obj) => fail!("Wrong downcast {:?} to {}", obj, std::any::type_name::<T>())
+    }
 }
 
 fn parse_data<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::bytes> {
@@ -143,9 +150,9 @@ impl SendReceive for GetStats {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let data = serialize(&answer).unwrap();
-        let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
+    ) -> Result<(String, Vec<u8>)> {
+        let data = serialize(&answer)?;
+        let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
         let mut description = String::from("{");
         for stat in stats.stats().iter() {
             description.push_str("\n\t\"");
@@ -171,9 +178,9 @@ impl SendReceive for GetSessionStats {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let data = serialize(&answer).unwrap();
-        let stats = answer.downcast::<ton_api::ton::engine::validator::SessionStats>()?;
+    ) -> Result<(String, Vec<u8>)> {
+        let data = serialize(&answer)?;
+        let stats = downcast::<ton_api::ton::engine::validator::SessionStats>(answer)?;
         let mut description = String::from("{");
         for session_stat in stats.stats().iter() {
             description.push_str("\n\t\"");
@@ -202,9 +209,12 @@ impl SendReceive for NewKeypair {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let key_hash = answer.downcast::<ton_api::ton::engine::validator::KeyHash>()?.key_hash().0.to_vec();
-        Ok((format!("received public key hash: {} {}", hex::encode(&key_hash), base64::encode(&key_hash)), key_hash))
+    ) -> Result<(String, Vec<u8>)> {
+        let answer = downcast::<ton_api::ton::engine::validator::KeyHash>(answer)?;
+        let key_hash = answer.key_hash().0.to_vec();
+        Ok((format!("received public key hash: {} {}", 
+            hex::encode(&key_hash), base64::encode(&key_hash)), key_hash
+        ))
     }
 }
 
@@ -218,8 +228,14 @@ impl SendReceive for ExportPub {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let pub_key = answer.downcast::<ton_api::ton::PublicKey>()?.key().unwrap().0.to_vec();
+    ) -> Result<(String, Vec<u8>)> {
+        let answer = downcast::<ton_api::ton::PublicKey>(answer)?;
+
+        let pub_key = answer
+            .key()
+            .ok_or_else(|| error!("Public key not found in answer!"))?
+            .0.to_vec();
+
         Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
 }
@@ -236,8 +252,9 @@ impl SendReceive for Sign {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let signature = answer.downcast::<ton_api::ton::engine::validator::Signature>()?.signature().0.clone();
+    ) -> Result<(String, Vec<u8>)> {
+        let answer = downcast::<ton_api::ton::engine::validator::Signature>(answer)?;
+        let signature = answer.signature().0.clone();
         Ok((format!("got signature: {} {}", hex::encode(&signature), base64::encode(&signature)), signature))
     }
 }
@@ -341,9 +358,9 @@ impl SendReceive for GetConfig {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let config_info = answer.downcast::<ton_api::ton::lite_server::ConfigInfo>()?;
-        let config_param = String::from_utf8(config_info.config_proof().0.clone()).unwrap();
+    ) -> Result<(String, Vec<u8>)> {
+        let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
+        let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
         Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
     }
 }
@@ -359,8 +376,8 @@ impl SendReceive for GetAccount {
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let shard_account_state = answer.downcast::<ShardAccountState>()?;
+    ) -> Result<(String, Vec<u8>)> {
+        let shard_account_state = downcast::<ShardAccountState>(answer)?;
         let mut account_info = String::from("{");
         account_info.push_str("\n\"");
         account_info.push_str("acc_type\":\t\"");
@@ -370,8 +387,8 @@ impl SendReceive for GetAccount {
                 account_info.push_str(&"Nonexist");
             },
             ShardAccountState::Raw_ShardAccountState(account_state) => {
-                let shard_account = ShardAccount::construct_from_bytes(&account_state.shard_account).unwrap();
-                let account = shard_account.read_account().unwrap();
+                let shard_account = ShardAccount::construct_from_bytes(&account_state.shard_account)?;
+                let account = shard_account.read_account()?;
 
                 let account_type = match account.status() {
                     AccountStatus::AccStateUninit => "Uninit",
@@ -393,7 +410,7 @@ impl SendReceive for GetAccount {
                 account_info.push_str("\",\n\"");
                 account_info.push_str("data(boc)\":\t\"");
                 account_info.push_str(
-                    &hex::encode(&serialize_toc(&shard_account.account_cell()).unwrap())
+                    &hex::encode(&serialize_toc(&shard_account.account_cell())?)
                 );
             }
         }
@@ -403,7 +420,7 @@ impl SendReceive for GetAccount {
         let account_data = account_info.as_bytes().to_vec();
         if let Some(boc_name) = params.next() {
             std::fs::write(boc_name.to_string(), &account_data)
-                .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
+                .map_err(|err| error!("Can`t create file: {}", err))?;
         }
 
         Ok((account_info.clone(), account_data))
@@ -415,31 +432,35 @@ impl SendReceive for GetAccountState {
         let account = AccountAddress { 
             account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
         };
-        let workchain_str = &account.account_address[0..account.account_address.find(":").unwrap_or(0)];
-        let workchain = parse_int(Some(workchain_str.clone()), "workchain")?;
 
-        let get_account = ton::rpc::raw::GetAccount { account_address: account, workchain: workchain }; 
-        Ok(TLObject::new(get_account))
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address: account}))
     }
 
     fn receive<Q: ToString>(
         answer: TLObject, 
         mut params: impl Iterator<Item = Q>
-    ) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let raw_account_state = answer.downcast::<ton_api::ton::Data>()?;
-
-        let raw_account_state = deserialize(raw_account_state.bytes().unsecure()).unwrap();
-        let account_state = raw_account_state.downcast::<ton_api::ton::raw::FullAccountState>()?;
+    ) -> Result<(String, Vec<u8>)> {
+        let shard_account_state = downcast::<ShardAccountState>(answer)?;
 
         params.next();
-        let boc_name = params.next().unwrap().to_string();
-        std::fs::write(boc_name, account_state.data().0.clone())
-            .map_err(|err| error!("Can`t create file: {}", err)).unwrap();
+        let boc_name = params
+            .next()
+            .ok_or_else(|| error!("bad params (boc name not found)!"))?
+            .to_string();
+
+        let shard_account_state = shard_account_state
+            .shard_account()
+            .ok_or_else(|| error!("account not found!"))?;
+        
+        let shard_account = ShardAccount::construct_from_bytes(&shard_account_state)?;
+        let account_state = serialize_toc(&shard_account.account_cell())?;
+        std::fs::write(boc_name, account_state.clone())
+            .map_err(|err| error!("Can`t create file: {}", err))?;
 
         Ok((format!("account state: {} {}",
-            hex::encode(&account_state.data().0),
-            base64::encode(&account_state.data().0)),
-            account_state.data().0.clone())
+            hex::encode(&account_state),
+            base64::encode(&account_state)),
+            account_state)
         )
     }
 }
@@ -1056,6 +1077,20 @@ mod test {
 
         test_one_cmd(&cmd, |result| assert_eq!(result[..etalon_result.len()], etalon_result)).await;
     }
+
+    #[tokio::test]
+    async fn test_get_account_state() {
+        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
+        let cmd = format!(r#"getaccountstate {} {}"#, account, "test_file.boc");
+        test_one_cmd(
+            &cmd, |result| { 
+                assert_eq!(result.len(), 257);
+                std::fs::remove_file("test_file.boc").unwrap();
+            }
+        ).await;
+    }
+
+
 
     #[tokio::test]
     async fn test_validator_status() {
