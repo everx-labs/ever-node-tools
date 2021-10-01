@@ -24,7 +24,7 @@ tokio = { version = "1.5.0", features = ["rt-multi-thread"] }
 ton_api = { git = "https://github.com/tonlabs/ton-labs-tl.git", package = "ton_api" }
 ton_block = { git = "https://github.com/tonlabs/ton-labs-block.git" }
 ton_block_json = { git = "https://github.com/tonlabs/ton-labs-block-json.git" }
-ton_node = { git = "https://github.com/tonlabs/ton-labs-node.git", branch = "rustnet" }
+ton_node = { git = "https://github.com/tonlabs/ton-labs-node.git" }
 ton_types = { git = "https://github.com/tonlabs/ton-labs-types.git" }
 
 [[bin]]
