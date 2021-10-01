@@ -4,11 +4,8 @@ use ton_block::{
     AccountIdPrefixFull, BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord
 };
 use ton_node::{
-    collator_test_bundle::create_engine_allocated, 
     internal_db::{InternalDb, InternalDbConfig, InternalDbImpl}
 };
-#[cfg(feature = "telemetry")]
-use ton_node::collator_test_bundle::create_engine_telemetry;
 use ton_types::{error, Result};
 
 fn print_block(block: &Block, brief: bool) -> Result<()> {
@@ -123,12 +120,7 @@ async fn main() -> Result<()> {
             db_directory: db_dir.to_string(), 
             cells_gc_interval_ms: 0
         };
-        let db = InternalDbImpl::new(
-            db_config, 
-            #[cfg(feature = "telemetry")]
-            create_engine_telemetry(),
-            create_engine_allocated()
-        ).await?;
+        let db = InternalDbImpl::new(db_config).await?;
         if let Some(block_id) = args.value_of("BLOCK") {
             let block_id = get_block_id(&db, block_id)?;
             print_db_block(&db, block_id, brief).await?;
