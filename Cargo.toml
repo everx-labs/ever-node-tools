@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.167'
+version = '0.1.168'
 
 [[bin]]
 name = 'adnl_resolve'
