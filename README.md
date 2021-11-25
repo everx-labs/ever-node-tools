@@ -222,6 +222,132 @@ Example:
 console -c "addadnl 4374376452376543 6783978551824553 1608288600"
 ```
 
+#### getstats
+
+**`getstats`** - get node status, validation status (if node is validator) and other information. 
+
+Command has no parameters.
+
+Returns node's information in JSON-format.
+
+base json-fields:
+
+• `sync_status` - synchronization status description;
+
+• `masterchainblocktime` - field with time of last masterchain block, downloaded by node;
+
+• `masterchainblocknumber` - field with number of last masterchain block, downloaded by node;
+
+• `timediff` - field with time difference between now and last loaded masterchain block's time;
+
+• `in_current_vset_p34` - true, if config param p34 contains this node's key;
+
+• `in_current_vset_p36` - true, if config param p36 contains this node's key;
+
+• `last applied masterchain block id` - field with information about last applied masterchain block's id;
+
+• `processed workchain` - field with information about the processed workchain;
+
+• `validation_stats` - field with information about validated workchains;
+
+• `tps_10` - transactions per second average over 10 seconds;
+
+• `tps_300` - transactions per second average over 300 seconds;
+
+Example: 
+
+```bash
+console -c "getstats"
+```
+
+#### sendmessage
+
+**`sendmessage`** - loads a serialized message from file and sends it to nodes as an external message.
+
+params:
+
+• `file_name` - serialized message file (in bag of cells format).
+
+Example:
+
+```bash
+console -c "sendmessage message.boc"
+```
+
+### getaccountstate
+
+**`getaccountstate`** - save account to the file (in bag of cells format).
+
+params:
+
+• `account_address` - is the account address.
+
+• `file_name` - is the file's name to save account's boc.
+
+Returns account's boc.
+
+Example:
+
+```bash
+console -c "getaccountstate 0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F account.boc"
+```
+
+### getaccount
+
+**`getaccount`** - load and save (optional) account information in json-format.
+
+params:
+
+• `account_address` - is the account address.
+
+• `file_name` - is the file's name to save account information in json-format. This param is optional.
+
+Returns json with account information. 
+
+Base json-fields:
+
+• `acc_type` - account type description;
+
+• `balance` - account balance;
+
+• `last_trans_lt` - logical time of the last account's transaction;
+
+• `data(boc)` - account`s boc.
+
+Example:
+
+```bash
+console -c "getaccount 0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
+```
+
+### getconfig
+
+**`getconfig`** - get current config param from masterchain state.
+
+params:
+
+• `param_number` - config parameter number.
+
+Returns boc with current config param.
+
+Example:
+
+```bash
+console -c "getconfig 15"
+```
+
+### getblockchainconfig
+
+**`getblockchainconfig`** - get current config from masterchain state.
+
+Returns boc with current config.
+
+Example:
+
+```bash
+console -c "getblockchainconfig"
+```
+
 
 # zerostate
 
