@@ -344,7 +344,7 @@ impl SendReceive for SendMessage {
 }
 
 impl SendReceive for GetBlockchainConfig {
-    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let block_id = BlockIdExt::default();
 
         Ok(TLObject::new(ton::rpc::lite_server::GetConfigAll {
@@ -357,8 +357,8 @@ impl SendReceive for GetBlockchainConfig {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
-        let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
-        Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
+        let config_param = hex::encode(config_info.config_proof().0.clone())?;
+        Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
     }
 }
 
