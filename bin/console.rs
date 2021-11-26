@@ -82,12 +82,13 @@ commands! {
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
-    GetStats, "getstats", "getstats\tget status validator"
+    GetStats, "getstats", "getstats\tget status fullnode or validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
     GetAccount, "getaccount", "getaccount <account id> <Option<file name>>\tget account info"
     GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
+    GetBlockchainConfig, "getblockchainconfig", "getblockchainconfig\tget current config from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
 
@@ -339,6 +340,25 @@ impl SendReceive for SendMessage {
         let body = std::fs::read(&filename)
             .map_err(|e| error!("Can't read file {} with message: {}", filename, e))?;
         Ok(TLObject::new(ton::rpc::lite_server::SendMessage {body: body.into()}))
+    }
+}
+
+impl SendReceive for GetBlockchainConfig {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let block_id = BlockIdExt::default();
+
+        Ok(TLObject::new(ton::rpc::lite_server::GetConfigAll {
+            mode: 0,
+            id: ton_node::block::convert_block_id_ext_blk2api(&block_id),
+        }))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
+        let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
+        Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
     }
 }
 
