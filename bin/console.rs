@@ -357,7 +357,7 @@ impl SendReceive for GetBlockchainConfig {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
-        let config_param = hex::encode(config_info.config_proof().0.clone())?;
+        let config_param = hex::encode(config_info.config_proof().0.clone());
         Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
     }
 }
