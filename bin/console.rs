@@ -173,7 +173,7 @@ impl SendReceive for GetStats {
 //        description.push_str("\n}");
 //        Ok((description, data))
         
-        Ok((serde_json::json!(json_map).to_string(), data))
+        Ok((serde_json::to_string_pretty(&json_map)?, data))
     }
 }
 
