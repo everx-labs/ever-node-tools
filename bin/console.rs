@@ -154,26 +154,21 @@ impl SendReceive for GetStats {
     ) -> Result<(String, Vec<u8>)> {
         let data = serialize(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
-        let mut json_map = serde_json::Map::new();
-
-//        let mut description = String::from("{");
+        let mut description = String::from("{");
         for stat in stats.stats().iter() {
-            json_map.insert(stat.key.clone(), stat.value.clone().into());
-//            description.push_str("\n\t\"");
-//            description.push_str(&stat.key);
-//            description.push_str("\":\t");
-//            let value = match &stat.value.is_empty() {
-//                true => "null",
-//                false => &stat.value,
-//            };
-//            description.push_str(value);
-//            description.push_str(",");
+            description.push_str("\n\t\"");
+            description.push_str(&stat.key);
+            description.push_str("\":\t");
+            let value = match &stat.value.is_empty() {
+                true => "null",
+                false => &stat.value,
+            };
+            description.push_str(value);
+            description.push_str(",");
         }
-//        description.pop();
-//        description.push_str("\n}");
-//        Ok((description, data))
-        
-        Ok((serde_json::to_string_pretty(&json_map)?, data))
+        description.pop();
+        description.push_str("\n}");
+        Ok((description, data))
     }
 }
 
