@@ -381,7 +381,7 @@ impl SendReceive for GetConfig {
     ) -> Result<(String, Vec<u8>)> {
         let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
         let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
-        Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
+        Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
     }
 }
 
@@ -477,7 +477,7 @@ impl SendReceive for GetAccountState {
         std::fs::write(boc_name, account_state.clone())
             .map_err(|err| error!("Can`t create file: {}", err))?;
 
-        Ok((format!("account state: {} {}",
+        Ok((format!("{} {}",
             hex::encode(&account_state),
             base64::encode(&account_state)),
             account_state)
