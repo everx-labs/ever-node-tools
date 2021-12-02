@@ -82,7 +82,7 @@ commands! {
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
-    GetStats, "getstats", "getstats\tget status fullnode or validator"
+    GetStats, "getstats", "getstats\tget status full node or validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
@@ -357,6 +357,9 @@ impl SendReceive for GetBlockchainConfig {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
+
+        // We use config_proof because we use standard struct ConfigInfo from ton-tl and
+        // ConfigInfo doesn`t contain more suitable fields
         let config_param = hex::encode(config_info.config_proof().0.clone());
         Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
     }
