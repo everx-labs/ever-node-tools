@@ -95,12 +95,13 @@ commands! {
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
-    GetStats, "getstats", "getstats\tget status validator"
+    GetStats, "getstats", "getstats\tget status full node or validator"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
     GetAccount, "getaccount", "getaccount <account id> <Option<file name>>\tget account info"
     GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
+    GetBlockchainConfig, "getblockchainconfig", "getblockchainconfig\tget current config from masterchain state"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
 }
 
@@ -355,6 +356,28 @@ impl SendReceive for SendMessage {
     }
 }
 
+impl SendReceive for GetBlockchainConfig {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let block_id = BlockIdExt::default();
+
+        Ok(TLObject::new(ton::rpc::lite_server::GetConfigAll {
+            mode: 0,
+            id: ton_node::block::convert_block_id_ext_blk2api(&block_id),
+        }))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
+
+        // We use config_proof because we use standard struct ConfigInfo from ton-tl and
+        // ConfigInfo doesn`t contain more suitable fields
+        let config_param = hex::encode(config_info.config_proof().0.clone());
+        Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
+    }
+}
+
 impl SendReceive for GetConfig {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let param_number = parse_int(params.next(), "paramnumber")?;
@@ -374,7 +397,7 @@ impl SendReceive for GetConfig {
     ) -> Result<(String, Vec<u8>)> {
         let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
         let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
-        Ok((format!("config param: {}", config_param), config_info.config_proof().0.clone()))
+        Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
     }
 }
 
@@ -470,7 +493,7 @@ impl SendReceive for GetAccountState {
         std::fs::write(boc_name, account_state.clone())
             .map_err(|err| error!("Can`t create file: {}", err))?;
 
-        Ok((format!("account state: {} {}",
+        Ok((format!("{} {}",
             hex::encode(&account_state),
             base64::encode(&account_state)),
             account_state)
