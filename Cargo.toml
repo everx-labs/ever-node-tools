@@ -2,7 +2,10 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.200'
+version = '0.1.201'
+
+[workspace]
+
 
 [[bin]]
 name = 'adnl_resolve'
@@ -71,7 +74,4 @@ ton_types = { git = 'https://github.com/tonlabs/ton-labs-types.git', tag = '1.10
 [features]
 default = [ 'telemetry' ]
 telemetry = [ 'adnl/telemetry', 'dht/telemetry', 'overlay/telemetry' ]
-
-[workspace]
-
 
