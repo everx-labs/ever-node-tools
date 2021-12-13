@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.240'
+version = '0.1.241'
 
 [workspace]
 
