@@ -14,7 +14,7 @@
 use clap::{Arg, App};
 use std::str::FromStr;
 use ton_block::{
-    AccountIdPrefixFull, BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord
+    BlockIdExt, Block, Deserializable, ShardStateUnsplit, McShardRecord
 };
 use ton_node::{
     collator_test_bundle::create_engine_allocated, 
@@ -76,8 +76,7 @@ fn get_block_id(db: &InternalDbImpl, id: &str) -> Result<BlockIdExt> {
         Ok(id)
     } else {
         let mc_seqno = u32::from_str(id)?;
-        let acc_pfx = AccountIdPrefixFull::any_masterchain();
-        let handle = db.find_block_by_seq_no(&acc_pfx, mc_seqno)?;
+        let handle = db.find_mc_block_by_seq_no(mc_seqno)?;
         Ok(handle.id().clone())
     }
 }

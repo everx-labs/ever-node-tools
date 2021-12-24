@@ -11,28 +11,23 @@
 * limitations under the License.
 */
 
-use adnl::common::{KeyOption, serialize, TaggedTlObject};
+use adnl::{
+    common::{KeyOption, serialize, TaggedTlObject},
+    client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
+};
 #[cfg(feature = "telemetry")]
 use adnl::common::tag_from_object;
-use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
 use clap::{Arg, App};
+use serde_json::{Map, Value};                                
+use std::{convert::TryInto, env, str::FromStr, time::Duration};
 use ton_api::ton::{
     self, TLObject, 
-    accountaddress::AccountAddress,
-    engine::validator::ControlQueryError,
-    raw::ShardAccountState,
-    rpc::engine::validator::ControlQuery,
+    accountaddress::AccountAddress, engine::validator::ControlQueryError, 
+    raw::ShardAccountState, rpc::engine::validator::ControlQuery
 };
 use ton_block::{AccountStatus, ShardAccount, Deserializable, BlockIdExt, Serializable};
-use ton_types::{error, fail, Result, BuilderData, serialize_toc};
-use std::{
-    convert::TryInto,
-    env,
-    str::FromStr,
-    time::Duration,
-};
-use serde_json::{Map, Value};
-
+use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
+                                                              
 include!("../common/src/test.rs");
 
 trait SendReceive {
@@ -127,7 +122,7 @@ fn parse_data<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::byte
     )
 }
 
-fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int256> {
+fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<UInt256> {
     parse_any(
         param_opt,
         &format!("{} in hex or base64 format", name),
@@ -137,7 +132,7 @@ fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::in
                 64 => hex::decode(value)?,
                 length => fail!("wrong hash: {} with length: {}", value, length)
             };
-            Ok(ton::int256(value.as_slice().try_into()?))
+            Ok(UInt256::with_array(value.as_slice().try_into()?))
         }
     )
 }
@@ -146,11 +141,8 @@ fn parse_int<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int> 
     parse_any(param_opt, name, |value| Ok(ton::int::from_str(value)?))
 }
 
-fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton_api::ton::ton_node::blockidext::BlockIdExt> {
-    parse_any(param_opt, name, |value| {
-        let block_id = BlockIdExt::from_str(value)?;
-        Ok(ton_node::block::convert_block_id_ext_blk2api(&block_id))
-    })
+fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<BlockIdExt> {
+    parse_any(param_opt, name, |value| BlockIdExt::from_str(value))
 }
 
 fn now() -> ton::int {
@@ -225,7 +217,7 @@ impl SendReceive for NewKeypair {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let answer = downcast::<ton_api::ton::engine::validator::KeyHash>(answer)?;
-        let key_hash = answer.key_hash().0.to_vec();
+        let key_hash = answer.key_hash().into_vec();
         Ok((format!("received public key hash: {} {}", 
             hex::encode(&key_hash), base64::encode(&key_hash)), key_hash
         ))
@@ -244,12 +236,10 @@ impl SendReceive for ExportPub {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let answer = downcast::<ton_api::ton::PublicKey>(answer)?;
-
         let pub_key = answer
             .key()
             .ok_or_else(|| error!("Public key not found in answer!"))?
-            .0.to_vec();
-
+            .into_vec();
         Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
 }
@@ -358,11 +348,9 @@ impl SendReceive for SendMessage {
 
 impl SendReceive for GetBlockchainConfig {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
-        let block_id = BlockIdExt::default();
-
         Ok(TLObject::new(ton::rpc::lite_server::GetConfigAll {
             mode: 0,
-            id: ton_node::block::convert_block_id_ext_blk2api(&block_id),
+            id: BlockIdExt::default()
         }))
     }
     fn receive<Q: ToString>(
@@ -381,13 +369,11 @@ impl SendReceive for GetBlockchainConfig {
 impl SendReceive for GetConfig {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let param_number = parse_int(params.next(), "paramnumber")?;
-        let block_id = BlockIdExt::default();
-
         let mut params: ton::vector<ton::Bare, ton::int> = ton::vector::default();
         params.0.push(param_number);
         Ok(TLObject::new(ton::rpc::lite_server::GetConfigParams {
             mode: 0,
-            id: ton_node::block::convert_block_id_ext_blk2api(&block_id),
+            id: BlockIdExt::default(),
             param_list: params
         }))
     }
