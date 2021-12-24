@@ -72,8 +72,14 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
             }
             index = 0;
         }
-        println!("Not found yet, scanning more DHT nodes from {}...", nodes[index]);
+        println!(
+            "Not found yet, scanning more DHT nodes from {} ({} of {}) ...", 
+            nodes[index], 
+            index, 
+            nodes.len()
+        );
         if !rt.block_on(dht.find_dht_nodes(&nodes[index]))? {
+            println!("DHT node {} is non-responsive", nodes[index]); 
             bad_nodes.push(nodes.remove(index))
         } else {
             index += 1
