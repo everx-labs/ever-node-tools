@@ -5,6 +5,7 @@ name = 'ton-node-tools'
 version = '0.1.253'
 
 [workspace]
+resolver = "2"
 
 [[bin]]
 name = 'adnl_resolve'
