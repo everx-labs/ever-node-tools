@@ -5,47 +5,39 @@ name = 'ton-node-tools'
 version = '0.1.253'
 
 [workspace]
-
+resolver = "2"
 
 [[bin]]
 name = 'adnl_resolve'
 path = 'bin/adnl_resolve.rs'
 
-
 [[bin]]
 name = 'adnl_ping'
 path = 'bin/adnl_ping.rs'
-
 
 [[bin]]
 name = 'dhtscan'
 path = 'bin/dhtscan.rs'
 
-
 [[bin]]
 name = 'gendht'
 path = 'bin/gendht.rs'
-
 
 [[bin]]
 name = 'console'
 path = 'bin/console.rs'
 
-
 [[bin]]
 name = 'keygen'
 path = 'bin/keygen.rs'
-
 
 [[bin]]
 name = 'keyid'
 path = 'bin/keyid.rs'
 
-
 [[bin]]
 name = 'print'
 path = 'bin/print.rs'
-
 
 [[bin]]
 name = 'zerostate'
