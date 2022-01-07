@@ -68,7 +68,7 @@ tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
 ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.117' }
 ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.7.36' }
 ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.6.33' }
-ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.48.17' }
+ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.48.19' }
 ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.10.12' }
 
 [features]
