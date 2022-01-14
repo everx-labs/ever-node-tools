@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.255'
+version = '0.1.256'
 
 [workspace]
 resolver = '2'
@@ -67,8 +67,8 @@ overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay', tag = '0.6.49' 
 tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
 ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.117' }
 ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.7.36' }
-ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.6.33' }
-ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.48.19' }
+ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.6.34' }
+ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.48.22' }
 ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.10.12' }
 
 [features]
