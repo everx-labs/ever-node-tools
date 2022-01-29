@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.257'
+version = '0.1.258'
 
 [workspace]
 resolver = '2'
@@ -11,41 +11,33 @@ resolver = '2'
 name = 'adnl_resolve'
 path = 'bin/adnl_resolve.rs'
 
-
 [[bin]]
 name = 'adnl_ping'
 path = 'bin/adnl_ping.rs'
-
 
 [[bin]]
 name = 'dhtscan'
 path = 'bin/dhtscan.rs'
 
-
 [[bin]]
 name = 'gendht'
 path = 'bin/gendht.rs'
-
 
 [[bin]]
 name = 'console'
 path = 'bin/console.rs'
 
-
 [[bin]]
 name = 'keygen'
 path = 'bin/keygen.rs'
-
 
 [[bin]]
 name = 'keyid'
 path = 'bin/keyid.rs'
 
-
 [[bin]]
 name = 'print'
 path = 'bin/print.rs'
-
 
 [[bin]]
 name = 'zerostate'
@@ -68,10 +60,9 @@ tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
 ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.120' }
 ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.7.37' }
 ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.7.2' }
-ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.49.0' }
+ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.49.3' }
 ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.10.12' }
 
 [features]
 default = [ 'telemetry' ]
 telemetry = [ 'adnl/telemetry', 'dht/telemetry', 'overlay/telemetry' ]
-
