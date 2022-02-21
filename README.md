@@ -449,7 +449,7 @@ This tool prints a state or block from the database.
 ### How to use
 
 ```bash
-print -d path [-s state_id] [-b block_id] [--accounts]
+print -d path [-s state_id] [-b block_id]
 ```
 
 Where
@@ -459,8 +459,6 @@ Where
 `block_id` – id of the block to be printed.
 
 `state_id` – id of the state to be printed.
-
-`accounts` - short info of all accounts will be printed as json
 
 ## Contributing
 
