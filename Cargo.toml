@@ -4,7 +4,6 @@ edition = '2021'
 name = 'ton-node-tools'
 version = '0.1.318'
 
-
 [[bin]]
 name = 'adnl_resolve'
 path = 'bin/adnl_resolve.rs'
@@ -69,5 +68,4 @@ default = [ 'telemetry' ]
 export_key = [ 'ton_types/export_key' ]
 telemetry = [ 'adnl/telemetry', 'dht/telemetry', 'overlay/telemetry' ]
 workchains = [ 'ton_types/export_key' ]
-
 
