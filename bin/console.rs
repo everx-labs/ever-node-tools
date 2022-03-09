@@ -727,6 +727,9 @@ async fn main() {
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
+        .arg(Arg::with_name("VERBOSE")
+            .long("verbose")
+            .help("verbose regim"))
         .arg(Arg::with_name("JSON")
             .short("j")
             .long("json")
@@ -743,6 +746,18 @@ async fn main() {
             env!("BUILD_GIT_DATE"),
             env!("BUILD_GIT_BRANCH")
         );
+    }
+
+    if args.is_present("VERBOSE") {
+        let encoder_boxed = Box::new(log4rs::encode::pattern::PatternEncoder::new("{m}{n}"));
+        let console = log4rs::append::console::ConsoleAppender::builder()
+            .encoder(encoder_boxed)
+            .build();
+        let config = log4rs::config::Config::builder()
+            .appender(log4rs::config::Appender::builder().build("console", Box::new(console)))
+            .build(log4rs::config::Root::builder().appender("console").build(log::LevelFilter::Trace))
+            .unwrap();
+        log4rs::init_config(config).unwrap();
     }
 
     let config = args.value_of("CONFIG").expect("required set for config");

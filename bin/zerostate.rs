@@ -70,10 +70,10 @@ fn import_zerostate(json: &str) -> Result<()> {
     let mc_zero_state = ShardStateUnsplit::construct_from_bytes(&bytes).expect("can't deserialize state");
     let extra = mc_zero_state.read_custom().expect("extra wasn't read from state").expect("extra must be in state");
     extra.config.config_params.iterate_slices(|ref mut key, ref mut param| {
-        u32::construct_from(key).expect("index wasn't deserialized incorrectly");
+        u32::construct_from(key).expect("index wasn't deserialized correctly");
         param.checked_drain_reference().expect("must contain reference");
         Ok(true)
-    }).expect("somthing wrong with config");
+    }).expect("something wrong with config");
     let prices = extra.config.storage_prices().expect("prices weren't read from config");
     for i in 0..prices.len().expect("prices len wasn't read") as u32 {
         prices.get(i).expect(&format!("prices description {} wasn't read", i));
@@ -113,6 +113,6 @@ fn main() {
         .get_matches();
 
     let file_name = args.value_of("INPUT").expect("required set for INPUT");
-    let json = std::fs::read_to_string(file_name).unwrap();
+    let json = std::fs::read_to_string(file_name).unwrap_or_else(|e| panic!("cannot read {}: {}", file_name, e));
     import_zerostate(&json).unwrap();
 }
