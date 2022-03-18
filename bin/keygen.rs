@@ -11,19 +11,19 @@
 * limitations under the License.
 */
 
-use adnl::common::KeyOption;
+use ever_crypto::Ed25519KeyOption;
 use ton_types::Result;
      
 fn gen() -> Result<()> {
-    let (private, public) = KeyOption::with_type_id(KeyOption::KEY_ED25519)?;
+    let (private, public) = Ed25519KeyOption::generate_with_json()?;
     let private = serde_json::to_value(private)?;
     println!("{:#}", serde_json::json!({
         "private": {
-            "type_id": KeyOption::KEY_ED25519,
+            "type_id": Ed25519KeyOption::KEY_TYPE,
             "pvt_key": private["pvt_key"],
         },
         "public": {
-            "type_id": KeyOption::KEY_ED25519,
+            "type_id": Ed25519KeyOption::KEY_TYPE,
             "pub_key": base64::encode(public.pub_key()?),
         },
         "keyhash": base64::encode(public.id().data()),

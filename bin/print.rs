@@ -18,7 +18,7 @@ use ton_block::{
 };
 use ton_node::{
     collator_test_bundle::create_engine_allocated, 
-    internal_db::{InternalDb, InternalDbConfig, InternalDbImpl}
+    internal_db::{InternalDb, InternalDbConfig}
 };
 #[cfg(feature = "telemetry")]
 use ton_node::collator_test_bundle::create_engine_telemetry;
@@ -42,7 +42,7 @@ fn print_state(state: &ShardStateUnsplit, brief: bool) -> Result<()> {
     Ok(())
 }
 
-async fn print_db_block(db: &InternalDbImpl, block_id: BlockIdExt, brief: bool) -> Result<()> {
+async fn print_db_block(db: &InternalDb, block_id: BlockIdExt, brief: bool) -> Result<()> {
     println!("loading block: {}", block_id);
     let handle = db.load_block_handle(&block_id)?.ok_or_else(
         || error!("Cannot load block {}", block_id)
@@ -51,13 +51,13 @@ async fn print_db_block(db: &InternalDbImpl, block_id: BlockIdExt, brief: bool) 
     print_block(block.block(), brief)
 }
 
-async fn print_db_state(db: &InternalDbImpl, block_id: BlockIdExt, brief: bool) -> Result<()> {
+async fn print_db_state(db: &InternalDb, block_id: BlockIdExt, brief: bool) -> Result<()> {
     println!("loading state: {}", block_id);
     let state = db.load_shard_state_dynamic(&block_id)?;
     print_state(state.state(), brief)
 }
 
-async fn print_shards(db: &InternalDbImpl, block_id: BlockIdExt) -> Result<()> {
+async fn print_shards(db: &InternalDb, block_id: BlockIdExt) -> Result<()> {
     println!("loading state: {}", block_id);
     let state = db.load_shard_state_dynamic(&block_id)?;
     if let Ok(shards) = state.shards() {
@@ -71,7 +71,7 @@ async fn print_shards(db: &InternalDbImpl, block_id: BlockIdExt) -> Result<()> {
 }
 
 // full BlockIdExt or masterchain seq_no
-fn get_block_id(db: &InternalDbImpl, id: &str) -> Result<BlockIdExt> {
+fn get_block_id(db: &InternalDb, id: &str) -> Result<BlockIdExt> {
     if let Ok(id) = BlockIdExt::from_str(id) {
         Ok(id)
     } else {
@@ -135,7 +135,7 @@ async fn main() -> Result<()> {
             db_directory: db_dir.to_string(), 
             cells_gc_interval_sec: 0
         };
-        let db = InternalDbImpl::new(
+        let db = InternalDb::new(
             db_config, 
             #[cfg(feature = "telemetry")]
             create_engine_telemetry(),

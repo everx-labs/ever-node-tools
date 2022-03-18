@@ -11,8 +11,9 @@
 * limitations under the License.
 */
 
-use adnl::{common::KeyOption, node::{AdnlNode, AdnlNodeConfig}};
+use adnl::node::{AdnlNode, AdnlNodeConfig};
 use dht::DhtNode;
+use ever_crypto::Ed25519KeyOption;
 use overlay::OverlayNode;
 use std::{collections::HashMap, env, fs::File, io::BufReader, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
@@ -35,9 +36,8 @@ fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) 
     let dht_nodes = config.get_dht_nodes_configs()?;
 
     let mut rt = tokio::runtime::Runtime::new()?;
-    let (_, config) = AdnlNodeConfig::with_ip_address_and_key_type(
+    let (_, config) = AdnlNodeConfig::with_ip_address_and_private_key_tags(
         IP, 
-        KeyOption::KEY_ED25519, 
         vec![KEY_TAG]
     )?;
     let adnl = rt.block_on(AdnlNode::with_config(config))?;
@@ -87,12 +87,14 @@ fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) 
             if skip {
                 continue;
             }
-            let key = KeyOption::from_tl_public_key(&node.id)?;
+            let key = Ed25519KeyOption::from_public_key_tl(&node.id)?;
             match rt.block_on(dht.ping(key.id())) {
                 Ok(true) => (),
                 _ => continue
             }
-            let adr = AdnlNode::parse_address_list(&node.addr_list)?.into_udp();
+            let adr = AdnlNode::parse_address_list(&node.addr_list)?.ok_or_else(
+                || error!("Cannot parse address list {:?}", node.addr_list)
+            )?.into_udp();
             let json = serde_json::json!(
                 {
                     "@type": "dht.node",
@@ -153,7 +155,7 @@ fn scan_overlay(
         let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
         let count = overlays.len();
         for (ip, node) in res {
-            let key = KeyOption::from_tl_public_key(&node.id)?;
+            let key = Ed25519KeyOption::from_public_key_tl(&node.id)?;
             overlays.insert(key.id().clone(), (ip, node));
         }
         if search_overlay {
