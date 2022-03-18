@@ -10,11 +10,15 @@
 * See the License for the specific TON DEV software governing permissions and
 * limitations under the License.
 */
-
-use adnl::common::KeyOption;
-use std::{convert::TryInto, env};
+#[cfg(feature = "export_key")]
+use ever_crypto::Ed25519KeyOption;
+use std::env;
+#[cfg(feature = "export_key")]
+use std::convert::TryInto;
+#[cfg(feature = "export_key")]
 use ton_types::{error, fail, Result};
-     
+
+#[cfg(feature = "export_key")]
 fn compute(typ: &str, key: &str) -> Result<()> {
     let key_bin = base64::decode(key)?;
     let key_bin: [u8; 32] = key_bin.try_into().map_err(
@@ -22,15 +26,12 @@ fn compute(typ: &str, key: &str) -> Result<()> {
     )?;
     let key = if typ.to_lowercase().as_str() == "pub" {
         println!("Public key: {}", key);
-        KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &key_bin)
+        Ed25519KeyOption::from_public_key(&key_bin)
     } else if typ.to_lowercase().as_str() == "pvt" {
         println!("Private key: {}", key);
-        let (_, key) = KeyOption::from_type_and_private_key(KeyOption::KEY_ED25519, &key_bin)?;
+        let key = Ed25519KeyOption::from_private_key(&key_bin)?;
         println!("Public key: {}", base64::encode(key.pub_key()?));
-        let mut ext_key = Vec::with_capacity(64);
-        ext_key.extend_from_slice(key.pvt_key()?);
-        ext_key.extend_from_slice(key.exp_key()?);
-        println!("Extended private key: {}", base64::encode(&ext_key[..]));
+        println!("Extended private key: {}", base64::encode(key.export_key()?));
         key
     } else {
         fail!("Wrong key type: expected pub|pvt, found {}", typ)
@@ -45,5 +46,8 @@ fn main() {
         println!("Usage: keyid pub|pvt <key in base64>");
         return
     };
-    compute(&args[1], &args[2]).unwrap_or_else(|e| println!("Key ID computing error: {}", e))
+    #[cfg(feature = "export_key")]
+    compute(&args[1], &args[2]).unwrap_or_else(|e| println!("Key ID computing error: {}", e));
+    #[cfg(not(feature = "export_key"))]
+    println!("feature export_key is not active!");
 }

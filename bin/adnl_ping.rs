@@ -12,14 +12,15 @@
 */
 
 use adnl::{
-    common::{KeyOption, TaggedTlObject}, 
+    common::TaggedTlObject, 
     node::{AdnlNode, AdnlNodeConfig, AdnlNodeConfigJson, IpAddress}
 };
-#[cfg(feature = "telemetry")]
-use adnl::common::tag_from_boxed_type;
+use ever_crypto::Ed25519KeyOption;
 use overlay::OverlayNode;
 use std::{convert::TryInto, env, fs::File, io::BufReader, sync::Arc};
 use ton_api::ton::{TLObject, rpc::ton_node::GetCapabilities};
+#[cfg(feature = "telemetry")]
+use ton_api::tag_from_boxed_type;
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
 
@@ -45,16 +46,15 @@ fn ping(
 
     let global_cfg: TonNodeGlobalConfigJson = read_config(global_cfgfile, "global")?;
     let zero_state_file_hash = global_cfg.zero_state()?.file_hash.as_slice().clone();
-    let ip = IpAddress::from_string(ip_addr)?;
+    let ip = IpAddress::from_versioned_string(ip_addr, None)?;
 
     let rt = tokio::runtime::Runtime::new()?;
     let local_cfg = if let Some(local_cfgfile) = local_cfgfile {
         let local_cfg: AdnlNodeConfigJson = read_config(local_cfgfile, "local")?;
-        AdnlNodeConfig::from_json_config(&local_cfg, true)?
+        AdnlNodeConfig::from_json_config(&local_cfg)?
     } else {
-        let (_, local_cfg) = AdnlNodeConfig::with_ip_address_and_key_type(
-            IP, 
-            KeyOption::KEY_ED25519, 
+        let (_, local_cfg) = AdnlNodeConfig::with_ip_address_and_private_key_tags(
+            IP,
             vec![KEY_TAG]
         )?;
         local_cfg
@@ -76,8 +76,7 @@ fn ping(
     }
     let local_key = adnl.key_by_tag(KEY_TAG)?;
     let other_key = Arc::new(
-        KeyOption::from_type_and_public_key(
-            KeyOption::KEY_ED25519, 
+        Ed25519KeyOption::from_public_key(
             (&base64::decode(pub_key)?[..]).try_into()?
         )
     );

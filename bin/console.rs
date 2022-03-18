@@ -11,23 +11,24 @@
 * limitations under the License.
 */
 
-use adnl::{
-    common::{KeyOption, serialize, TaggedTlObject},
-    client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
+use adnl::{common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}};
+use ever_crypto::Ed25519KeyOption;
+use clap::{Arg, App};
+use serde_json::{Map, Value};
+use std::{convert::TryInto, env, str::FromStr, time::Duration};
+use ton_api::{
+    serialize_boxed,
+    ton::{
+        self, TLObject, 
+        accountaddress::AccountAddress, engine::validator::ControlQueryError, 
+        raw::ShardAccountState, rpc::engine::validator::ControlQuery
+    }
 };
 #[cfg(feature = "telemetry")]
-use adnl::common::tag_from_object;
-use clap::{Arg, App};
-use serde_json::{Map, Value};                                
-use std::{convert::TryInto, env, str::FromStr, time::Duration};
-use ton_api::ton::{
-    self, TLObject, 
-    accountaddress::AccountAddress, engine::validator::ControlQueryError, 
-    raw::ShardAccountState, rpc::engine::validator::ControlQuery
-};
+use ton_api::tag_from_bare_object;
 use ton_block::{AccountStatus, ShardAccount, Deserializable, BlockIdExt, Serializable};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
-                                                              
+
 include!("../common/src/test.rs");
 
 trait SendReceive {
@@ -157,7 +158,7 @@ impl SendReceive for GetStats {
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
-        let data = serialize(&answer)?;
+        let data = serialize_boxed(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
         let mut description = String::from("{");
         for stat in stats.stats().iter() {
@@ -185,7 +186,7 @@ impl SendReceive for GetSessionStats {
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
-        let data = serialize(&answer)?;
+        let data = serialize_boxed(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::SessionStats>(answer)?;
         let mut description = String::from("{");
         for session_stat in stats.stats().iter() {
@@ -542,10 +543,10 @@ impl ControlClient {
     ) -> Result<(String, Vec<u8>)> {
         let query = command_send(name, params.clone())?;
         let boxed = ControlQuery {
-            data: ton::bytes(serialize(&query)?)
+            data: ton::bytes(serialize_boxed(&query)?)
         };
         #[cfg(feature = "telemetry")]
-        let tag = tag_from_object(&boxed);
+        let tag = tag_from_bare_object(&boxed);
         let boxed = TaggedTlObject {
             object: TLObject::new(boxed),
             #[cfg(feature = "telemetry")]
@@ -635,7 +636,7 @@ impl ControlClient {
         let data_str = &hex::encode_upper(&data)[..];
         let (s, signature) = self.process_command("sign", vec![perm_str, data_str].iter()).await?;
         log::trace!("{}", s);
-        KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
+        Ed25519KeyOption::from_public_key(&pub_key[..].try_into()?)
             .verify(&data, &signature)?;
 
         let query_id = now() as u64;
@@ -727,6 +728,9 @@ async fn main() {
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
+        .arg(Arg::with_name("VERBOSE")
+            .long("verbose")
+            .help("verbose regim"))
         .arg(Arg::with_name("JSON")
             .short("j")
             .long("json")
@@ -743,6 +747,18 @@ async fn main() {
             env!("BUILD_GIT_DATE"),
             env!("BUILD_GIT_BRANCH")
         );
+    }
+
+    if args.is_present("VERBOSE") {
+        let encoder_boxed = Box::new(log4rs::encode::pattern::PatternEncoder::new("{m}{n}"));
+        let console = log4rs::append::console::ConsoleAppender::builder()
+            .encoder(encoder_boxed)
+            .build();
+        let config = log4rs::config::Config::builder()
+            .appender(log4rs::config::Appender::builder().build("console", Box::new(console)))
+            .build(log4rs::config::Root::builder().appender("console").build(log::LevelFilter::Trace))
+            .unwrap();
+        log4rs::init_config(config).unwrap();
     }
 
     let config = args.value_of("CONFIG").expect("required set for config");
