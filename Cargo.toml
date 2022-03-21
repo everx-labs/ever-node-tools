@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.260'
+version = '0.1.261'
 
 [workspace]
 resolver = '2'
@@ -11,33 +11,41 @@ resolver = '2'
 name = 'adnl_resolve'
 path = 'bin/adnl_resolve.rs'
 
+
 [[bin]]
 name = 'adnl_ping'
 path = 'bin/adnl_ping.rs'
+
 
 [[bin]]
 name = 'dhtscan'
 path = 'bin/dhtscan.rs'
 
+
 [[bin]]
 name = 'gendht'
 path = 'bin/gendht.rs'
+
 
 [[bin]]
 name = 'console'
 path = 'bin/console.rs'
 
+
 [[bin]]
 name = 'keygen'
 path = 'bin/keygen.rs'
+
 
 [[bin]]
 name = 'keyid'
 path = 'bin/keyid.rs'
 
+
 [[bin]]
 name = 'print'
 path = 'bin/print.rs'
+
 
 [[bin]]
 name = 'zerostate'
