@@ -11,21 +11,23 @@
 * limitations under the License.
 */
 
-use adnl::{adnl_node_test_key, adnl_node_test_config, common::KeyOption, node::{AdnlNode, AdnlNodeConfig}};
+use adnl::{adnl_node_test_key, adnl_node_test_config, node::{AdnlNode, AdnlNodeConfig}};
 use dht::DhtNode;
+use ever_crypto::Ed25519KeyOption;
 use std::{env, ops::Deref};
-use ton_types::Result;
+use ton_types::{error, Result};
 
 async fn gen(ip: &str, dht_key_enc: &str) -> Result<()> {
     let config = AdnlNodeConfig::from_json(
-       adnl_node_test_config!(ip, adnl_node_test_key!(1 as usize, dht_key_enc)),
-       true
+       adnl_node_test_config!(ip, adnl_node_test_key!(1 as usize, dht_key_enc))
     ).unwrap();
     let adnl = AdnlNode::with_config(config).await.unwrap();
     let dht = DhtNode::with_adnl_node(adnl.clone(), 1 as usize).unwrap();
     let node = dht.get_signed_node().unwrap();
-    let key = KeyOption::from_tl_public_key(&node.id)?;
-    let adr = AdnlNode::parse_address_list(&node.addr_list)?.into_udp();
+    let key = Ed25519KeyOption::from_public_key_tl(&node.id)?;
+    let adr = AdnlNode::parse_address_list(&node.addr_list)?.ok_or_else(
+        || error!("Cannot parse address list {:?}", node.addr_list)
+    )?.into_udp();
     let json = serde_json::json!(
         {
             "@type": "dht.node",

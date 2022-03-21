@@ -11,23 +11,24 @@
 * limitations under the License.
 */
 
-use adnl::{
-    common::{KeyOption, serialize, TaggedTlObject},
-    client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
+use adnl::{common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}};
+use ever_crypto::Ed25519KeyOption;
+use clap::{Arg, App};
+use serde_json::{Map, Value};
+use std::{convert::TryInto, env, str::FromStr, time::Duration};
+use ton_api::{
+    serialize_boxed,
+    ton::{
+        self, TLObject, 
+        accountaddress::AccountAddress, engine::validator::ControlQueryError, 
+        raw::ShardAccountState, rpc::engine::validator::ControlQuery
+    }
 };
 #[cfg(feature = "telemetry")]
-use adnl::common::tag_from_object;
-use clap::{Arg, App};
-use serde_json::{Map, Value};                                
-use std::{convert::TryInto, env, str::FromStr, time::Duration};
-use ton_api::ton::{
-    self, TLObject, 
-    accountaddress::AccountAddress, engine::validator::ControlQueryError, 
-    raw::ShardAccountState, rpc::engine::validator::ControlQuery
-};
+use ton_api::tag_from_bare_object;
 use ton_block::{AccountStatus, ShardAccount, Deserializable, BlockIdExt, Serializable};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
-                                                              
+
 include!("../common/src/test.rs");
 
 trait SendReceive {
@@ -157,7 +158,7 @@ impl SendReceive for GetStats {
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
-        let data = serialize(&answer)?;
+        let data = serialize_boxed(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
         let mut description = String::from("{");
         for stat in stats.stats().iter() {
@@ -185,7 +186,7 @@ impl SendReceive for GetSessionStats {
         answer: TLObject, 
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
-        let data = serialize(&answer)?;
+        let data = serialize_boxed(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::SessionStats>(answer)?;
         let mut description = String::from("{");
         for session_stat in stats.stats().iter() {
@@ -542,10 +543,10 @@ impl ControlClient {
     ) -> Result<(String, Vec<u8>)> {
         let query = command_send(name, params.clone())?;
         let boxed = ControlQuery {
-            data: ton::bytes(serialize(&query)?)
+            data: ton::bytes(serialize_boxed(&query)?)
         };
         #[cfg(feature = "telemetry")]
-        let tag = tag_from_object(&boxed);
+        let tag = tag_from_bare_object(&boxed);
         let boxed = TaggedTlObject {
             object: TLObject::new(boxed),
             #[cfg(feature = "telemetry")]
@@ -635,7 +636,7 @@ impl ControlClient {
         let data_str = &hex::encode_upper(&data)[..];
         let (s, signature) = self.process_command("sign", vec![perm_str, data_str].iter()).await?;
         log::trace!("{}", s);
-        KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
+        Ed25519KeyOption::from_public_key(&pub_key[..].try_into()?)
             .verify(&data, &signature)?;
 
         let query_id = now() as u64;
@@ -727,6 +728,9 @@ async fn main() {
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
+        .arg(Arg::with_name("VERBOSE")
+            .long("verbose")
+            .help("verbose regim"))
         .arg(Arg::with_name("JSON")
             .short("j")
             .long("json")
@@ -743,6 +747,18 @@ async fn main() {
             env!("BUILD_GIT_DATE"),
             env!("BUILD_GIT_BRANCH")
         );
+    }
+
+    if args.is_present("VERBOSE") {
+        let encoder_boxed = Box::new(log4rs::encode::pattern::PatternEncoder::new("{m}{n}"));
+        let console = log4rs::append::console::ConsoleAppender::builder()
+            .encoder(encoder_boxed)
+            .build();
+        let config = log4rs::config::Config::builder()
+            .appender(log4rs::config::Appender::builder().build("console", Box::new(console)))
+            .build(log4rs::config::Root::builder().appender("console").build(log::LevelFilter::Trace))
+            .unwrap();
+        log4rs::init_config(config).unwrap();
     }
 
     let config = args.value_of("CONFIG").expect("required set for config");
@@ -781,421 +797,3 @@ async fn main() {
     client.shutdown().await.ok();
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use std::sync::Arc;
-    use ton_node::{
-        config::{NodeConfigHandler, TonNodeConfig},
-        network::control::ControlServer,
-    };
-    use ton_types::Result;
-    use ton_block::{BlockLimits, ParamLimits, Deserializable};
-
-    pub struct Engine {
-        _config_handler: Arc<NodeConfigHandler>,
-        control: ControlServer
-    }
-
-    impl Engine {
-        pub async fn with_config(node_config_path: &str) -> Result<Self> {
-            let node_config = TonNodeConfig::from_file("target", node_config_path, None, "", None)?;
-            let control_server_config = node_config.control_server()?;
-            let (config_handler, context) = NodeConfigHandler::create(node_config, tokio::runtime::Handle::current())?;
-            NodeConfigHandler::start_sheduler(config_handler.clone(), context, vec![])?;
-            let config = control_server_config.expect("must have control server setting");
-            let control = ControlServer::with_config(
-                config, None, config_handler.clone(), config_handler.clone()
-            ).await?;
-
-            Ok(Self {
-                _config_handler: config_handler.clone(),
-                control
-            })
-        }
-        pub async fn shutdown(self) {
-            self.control.shutdown().await
-        }
-    }
-    const ADNL_SERVER_CONFIG: &str = r#"{
-        "control_server": {
-            "address": "127.0.0.1:4924",
-            "server_key": {
-                "type_id": 1209251014,
-                "pvt_key": "cJIxGZviebMQWL726DRejqVzRTSXPv/1sO/ab6XOZXk="
-            },
-            "clients": {
-                "list": [
-                    {
-                        "type_id": 1209251014,
-                        "pub_key": "RYokIiD5AFkzfTBgC6NhtAGFKm0+gwhN4suTzaW0Sjw="
-                    }
-                ]
-            }
-        }
-    }"#;
-
-    const ADNL_CLIENT_CONFIG: &str = r#"{
-        "config": {
-            "server_address": "127.0.0.1:4924",
-            "server_key": {
-                "type_id": 1209251014,
-                "pub_key": "cujCRU4rQbSw48yHVHxQtRPhUlbo+BuZggFTQSu04Y8="
-            },
-            "client_key": {
-                "type_id": 1209251014,
-                "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
-            }
-        },
-        "wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
-        "max_factor": 2.7
-    }"#;
-
-    const SAMPLE_ZERO_STATE: &str = r#"{
-        "id": "-1:8000000000000000",
-        "workchain_id": -1,
-        "boc": "",
-        "global_id": 42,
-        "shard": "8000000000000000",
-        "seq_no": 0,
-        "vert_seq_no": 0,
-        "gen_utime": 1600000000,
-        "gen_lt": "0",
-        "min_ref_mc_seqno": 4294967295,
-        "before_split": false,
-        "overload_history": "0",
-        "underload_history": "0",
-        "total_balance": "4993357197000000000",
-        "total_validator_fees": "0",
-        "master": {
-            "config_addr": "5555555555555555555555555555555555555555555555555555555555555555",
-            "config": {
-            "p0": "5555555555555555555555555555555555555555555555555555555555555555",
-            "p1": "3333333333333333333333333333333333333333333333333333333333333333",
-            "p2": "0000000000000000000000000000000000000000000000000000000000000000",
-            "p7": [],
-            "p8": {
-                "version": 5,
-                "capabilities": "46"
-            },
-            "p9": [ 0 ],
-            "p10": [ 0 ],
-            "p11": {
-                "normal_params": {
-                    "min_tot_rounds": 2,
-                    "max_tot_rounds": 3,
-                    "min_wins": 2,
-                    "max_losses": 2,
-                    "min_store_sec": 1000000,
-                    "max_store_sec": 10000000,
-                    "bit_price": 1,
-                    "cell_price": 500
-                },
-                "critical_params": {
-                    "min_tot_rounds": 4,
-                    "max_tot_rounds": 7,
-                    "min_wins": 4,
-                    "max_losses": 2,
-                    "min_store_sec": 5000000,
-                    "max_store_sec": 20000000,
-                    "bit_price": 2,
-                    "cell_price": 1000
-                }
-            },
-            "p12": [],
-            "p13": {
-                "boc": "te6ccgEBAQEADQAAFRpRdIdugAEBIB9I"
-            },
-            "p14": {
-                "masterchain_block_fee": "1700000000",
-                "basechain_block_fee": "1000000000"
-            },
-            "p15": {
-                "validators_elected_for": 65536,
-                "elections_start_before": 32768,
-                "elections_end_before": 8192,
-                "stake_held_for": 32768
-            },
-            "p16": {
-                "max_validators": 1000,
-                "max_main_validators": 100,
-                "min_validators": 5
-            },
-            "p17": {
-                "min_stake": "10000000000000",
-                "max_stake": "10000000000000000",
-                "min_total_stake": "100000000000000",
-                "max_stake_factor": 196608
-            },
-            "p18": [
-                {
-                "utime_since": 0,
-                "bit_price_ps": "1",
-                "cell_price_ps": "500",
-                "mc_bit_price_ps": "1000",
-                "mc_cell_price_ps": "500000"
-                }
-            ],
-            "p20": {
-                "flat_gas_limit": "1000",
-                "flat_gas_price": "10000000",
-                "gas_price": "655360000",
-                "gas_limit": "1000000",
-                "special_gas_limit": "100000000",
-                "gas_credit": "10000",
-                "block_gas_limit": "10000000",
-                "freeze_due_limit": "100000000",
-                "delete_due_limit": "1000000000"
-            },
-            "p21": {
-                "flat_gas_limit": "1000",
-                "flat_gas_price": "1000000",
-                "gas_price": "65536000",
-                "gas_limit": "1000000",
-                "special_gas_limit": "1000000",
-                "gas_credit": "10000",
-                "block_gas_limit": "10000000",
-                "freeze_due_limit": "100000000",
-                "delete_due_limit": "1000000000"
-            },
-            "p22": {
-                "bytes": {
-                    "underload": 131072,
-                    "soft_limit": 524288,
-                    "hard_limit": 1048576
-                },
-                "gas": {
-                    "underload": 900000,
-                    "soft_limit": 1200000,
-                    "hard_limit": 2000000
-                },
-                "lt_delta": {
-                    "underload": 1000,
-                    "soft_limit": 5000,
-                    "hard_limit": 10000
-                }
-            },
-            "p23": {
-                "bytes": {
-                    "underload": 131072,
-                    "soft_limit": 524288,
-                    "hard_limit": 1048576
-                },
-                "gas": {
-                    "underload": 900000,
-                    "soft_limit": 1200000,
-                    "hard_limit": 2000000
-                },
-                "lt_delta": {
-                    "underload": 1000,
-                    "soft_limit": 5000,
-                    "hard_limit": 10000
-                }
-            },
-            "p24": {
-                "lump_price": "10000000",
-                "bit_price": "655360000",
-                "cell_price": "65536000000",
-                "ihr_price_factor": 98304,
-                "first_frac": 21845,
-                "next_frac": 21845
-            },
-            "p25": {
-                "lump_price": "1000000",
-                "bit_price": "65536000",
-                "cell_price": "6553600000",
-                "ihr_price_factor": 98304,
-                "first_frac": 21845,
-                "next_frac": 21845
-            },
-            "p28": {
-                "shuffle_mc_validators": true,
-                "mc_catchain_lifetime": 250,
-                "shard_catchain_lifetime": 250,
-                "shard_validators_lifetime": 1000,
-                "shard_validators_num": 7
-            },
-            "p29": {
-                "new_catchain_ids": true,
-                "round_candidates": 3,
-                "next_candidate_delay_ms": 2000,
-                "consensus_timeout_ms": 16000,
-                "fast_attempts": 3,
-                "attempt_duration": 8,
-                "catchain_max_deps": 4,
-                "max_block_bytes": 2097152,
-                "max_collated_bytes": 2097152
-            },
-            "p31": [
-                "0000000000000000000000000000000000000000000000000000000000000000"
-            ],
-            "p34": {
-                "utime_since": 1600000000,
-                "utime_until": 1610000000,
-                "total": 1,
-                "main": 1,
-                "total_weight": "17",
-                "list": [
-                    {
-                        "public_key": "2e7eb5a711ed946605a91e36037c4cb927181eff4bb277b175d891a588d03536",
-                        "weight": "17"
-                    }
-                ]
-            }
-            },
-            "validator_list_hash_short": 871956759,
-            "catchain_seqno": 0,
-            "nx_cc_updated": true,
-            "after_key_block": true,
-            "global_balance": "4993357197000000000"
-        },
-        "accounts": [],
-        "libraries": [],
-        "out_msg_queue_info": {
-            "out_queue": [],
-            "proc_info": [],
-            "ihr_pending": []
-        }
-    }"#;
-
-    async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
-        // init_test_log();
-        std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
-        let server = Engine::with_config("light_node.json").await.unwrap();
-        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
-        let mut client = ControlClient::connect(config).await.unwrap();
-        let (_, result) = client.command(cmd).await.unwrap();
-        check_result(result);
-        client.shutdown().await.ok();
-        server.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn test_new_key_one() {
-        let cmd = "newkey";
-        test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_nonexist_account() {
-        let account = "-1:5555555555555555555555555555555555555555555555555555555555555555";
-        let cmd = format!(r#"getaccount {}"#, account);
-        let mut etalon_result = String::from("{");
-        etalon_result.push_str("\n\"");
-        etalon_result.push_str("acc_type\":\t\"Nonexist");
-        etalon_result.push_str("\"\n}");
-
-        test_one_cmd(&cmd, |result| assert_eq!(result, etalon_result.as_bytes().to_vec())).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_active_account() {
-        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
-        let cmd = format!(r#"getaccount {}"#, account);
-        let mut etalon_result = String::from("{");
-        etalon_result.push_str("\n\"");
-        etalon_result.push_str("acc_type\":\t\"Active");
-        let etalon_result = etalon_result.as_bytes().to_vec();
-
-        test_one_cmd(&cmd, |result| assert_eq!(result[..etalon_result.len()], etalon_result)).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_account_state() {
-        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
-        let cmd = format!(r#"getaccountstate {} {}"#, account, "test_file.boc");
-        test_one_cmd(
-            &cmd, |result| { 
-                assert_eq!(result.len(), 257);
-                std::fs::remove_file("test_file.boc").unwrap();
-            }
-        ).await;
-    }
-
-
-
-    #[tokio::test]
-    async fn test_validator_status() {
-        let cmd = "get_validator_status";
-        test_one_cmd(cmd, |result| assert_eq!(result, vec![0,0])).await;
-    }
-
-    #[tokio::test]
-    async fn test_election_bid() {
-        let now = now() + 86400;
-        let cmd = format!(r#"election-bid {} {} "target/validator-query.boc""#, now, now + 10001);
-        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 164)).await;
-    }
-
-    #[tokio::test]
-    async fn test_recover_stake() {
-        let cmd = r#"recover_stake "target/recover-query.boc""#;
-        test_one_cmd(cmd, |result| assert_eq!(result.len(), 25)).await;
-    }
-
-    #[tokio::test]
-    async fn test_config_param() {
-        std::fs::write("target/zerostate.json", SAMPLE_ZERO_STATE).unwrap();
-        let cmd = r#"cparam 23 "target/zerostate.json" "target/config-param.boc""#;
-        test_one_cmd(cmd, |result| {
-            assert_eq!(result.len(), 53);
-            let limits = BlockLimits::construct_from_bytes(&result).unwrap();
-            assert_eq!(limits.bytes(), &ParamLimits::with_limits(131072, 524288, 1048576).unwrap());
-            assert_eq!(limits.gas(), &ParamLimits::with_limits(900000, 1200000, 2000000).unwrap());
-            assert_eq!(limits.lt_delta(), &ParamLimits::with_limits(1000, 5000, 10000).unwrap());
-        }).await;
-    }
-
-    #[tokio::test]
-    async fn test_new_key_with_export() {
-        // init_test_log();
-        std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
-        let server = Engine::with_config("light_node.json").await.unwrap();
-        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
-        let mut client = ControlClient::connect(config).await.unwrap();
-        let (_, result) = client.command("newkey").await.unwrap();
-        assert_eq!(result.len(), 32);
-
-        let cmd = format!("exportpub {}", base64::encode(&result));
-        let (_, result) = client.command(&cmd).await.unwrap();
-        assert_eq!(result.len(), 32);
-
-        client.shutdown().await.ok();
-        server.shutdown().await;
-    }
-
-    macro_rules! parse_test {
-        ($func:expr, $param:expr) => {
-            $func($param.split_whitespace().next(), "test")
-        };
-    }
-    #[test]
-    fn test_parse_int() {
-        assert_eq!(parse_test!(parse_int, "0").unwrap(), 0);
-        assert_eq!(parse_test!(parse_int, "-1").unwrap(), -1);
-        assert_eq!(parse_test!(parse_int, "1600000000").unwrap(), 1600000000);
-
-        parse_test!(parse_int, "qwe").expect_err("must generate error");
-        parse_int(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-
-    #[test]
-    fn test_parse_int256() {
-        let ethalon = ton::int256(base64::decode("GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap().as_slice().try_into().unwrap());
-        assert_eq!(parse_test!(parse_int256, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap(), ethalon);
-        assert_eq!(parse_test!(parse_int256, "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F").unwrap(), ethalon);
-
-        parse_test!(parse_int256, "11").expect_err("must generate error");
-        parse_int256(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-
-    #[test]
-    fn test_parse_data() {
-        let ethalon = ton::bytes(vec![10, 77]);
-        assert_eq!(parse_test!(parse_data, "0A4D").unwrap(), ethalon);
-
-        parse_test!(parse_data, "QQ").expect_err("must generate error");
-        parse_test!(parse_data, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").expect_err("must generate error");
-        parse_data(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-}

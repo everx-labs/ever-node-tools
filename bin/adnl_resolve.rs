@@ -11,7 +11,8 @@
 * limitations under the License.
 */
 
-use adnl::{common::{KeyId, KeyOption}, node::{AdnlNode, AdnlNodeConfig}};
+use adnl::node::{AdnlNode, AdnlNodeConfig};
+use ever_crypto::KeyId;
 use dht::DhtNode;
 use std::{convert::TryInto, env, fs::File, io::BufReader};
 use ton_node::config::TonNodeGlobalConfigJson;
@@ -31,9 +32,8 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
     )?;
     let dht_nodes = config.get_dht_nodes_configs()?;
     let rt = tokio::runtime::Runtime::new()?;
-    let (_, config) = AdnlNodeConfig::with_ip_address_and_key_type(
+    let (_, config) = AdnlNodeConfig::with_ip_address_and_private_key_tags(
         IP, 
-        KeyOption::KEY_ED25519, 
         vec![KEY_TAG]
     )?;
     let adnl = rt.block_on(AdnlNode::with_config(config))?;
