@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2018'
 name = 'ton-node-tools'
-version = '0.1.265'
+version = '0.1.277'
 
 [workspace]
 resolver = '2'
@@ -53,16 +53,16 @@ log4rs = '0.8.3'
 serde = '1.0.105'
 serde_json = '1.0.56'
 shell-words = '1.0.0'
-adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ton-labs-adnl', tag = '0.7.69' }
-dht = { git = 'https://github.com/tonlabs/ton-labs-dht', tag = '0.5.64' }
-ever-crypto = { git = 'https://github.com/tonlabs/ever-labs-crypto', tag = '0.1.15' }
-overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay', tag = '0.6.52' }
+adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ton-labs-adnl', tag = '0.7.73' }
+dht = { git = 'https://github.com/tonlabs/ton-labs-dht', tag = '0.5.67' }
+ever-crypto = { git = 'https://github.com/tonlabs/ever-labs-crypto', tag = '0.1.21' }
+overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay', tag = '0.6.57' }
 tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
-ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.122' }
-ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.7.43' }
-ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.7.10' }
-ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.50.13' }
-ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.10.14' }
+ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.127' }
+ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.7.48' }
+ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.7.15' }
+ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.50.17' }
+ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.11.1' }
 
 [features]
 default = [ 'telemetry' ]
