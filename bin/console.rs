@@ -570,7 +570,7 @@ impl ControlClient {
         data.extend_from_slice(&query_id.to_be_bytes());
         let len = data.len() * 8;
         let body = BuilderData::with_raw(data, len)?;
-        let body = body.into();
+        let body = body.into_cell()?;
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("recover-query.boc".to_string());
@@ -651,7 +651,7 @@ impl ControlClient {
         let mut body = BuilderData::with_raw(data, len)?;
         let len = signature.len() * 8;
         body.append_reference(BuilderData::with_raw(signature, len)?);
-        let body = body.into();
+        let body = body.into_cell()?;
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
