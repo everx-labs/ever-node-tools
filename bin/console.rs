@@ -419,7 +419,7 @@ impl SendReceive for GetAccount {
                     AccountStatus::AccStateActive => "Active",
                     AccountStatus::AccStateNonexist => "Nonexist"
                 };
-                let balance = account.balance().map_or(0, |val| val.grams.0);
+                let balance = account.balance().map_or(0, |val| val.grams.as_u128());
                 account_info.push_str(&account_type);
                 account_info.push_str("\",\n\"");
                 account_info.push_str("balance\":\t");
@@ -446,7 +446,7 @@ impl SendReceive for GetAccount {
                 .map_err(|err| error!("Can`t create file: {}", err))?;
         }
 
-        Ok((account_info.clone(), account_data))
+        Ok((account_info, account_data))
     }
 }
 

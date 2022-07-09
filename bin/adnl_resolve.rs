@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2019-2021 TON Labs. All Rights Reserved.
+* Copyright (C) 2019-2022 TON Labs. All Rights Reserved.
 *
 * Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
 * this file except in compliance with the License.
@@ -23,7 +23,7 @@ include!("../common/src/test.rs");
 const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
 
-fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
+async fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
 
     let file = File::open(cfgfile)?;
     let reader = BufReader::new(file);
@@ -31,14 +31,13 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
         |e| error!("Cannot read config from file {}: {}", cfgfile, e) 
     )?;
     let dht_nodes = config.get_dht_nodes_configs()?;
-    let rt = tokio::runtime::Runtime::new()?;
     let (_, config) = AdnlNodeConfig::with_ip_address_and_private_key_tags(
         IP, 
         vec![KEY_TAG]
     )?;
-    let adnl = rt.block_on(AdnlNode::with_config(config))?;
+    let adnl = AdnlNode::with_config(config).await?;
     let dht = DhtNode::with_adnl_node(adnl.clone(), KEY_TAG)?;
-    rt.block_on(AdnlNode::start(&adnl, vec![dht.clone()]))?;
+    AdnlNode::start(&adnl, vec![dht.clone()]).await?;
 
     let mut nodes = Vec::new();
     let mut bad_nodes = Vec::new();
@@ -52,9 +51,9 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
 
     let keyid = KeyId::from_data((&base64::decode(adnlid)?[..32]).try_into()?);
     let mut index = 0;
+    println!("Searching DHT for {}...", keyid);
     loop {
-        println!("Searching DHT for {}...", keyid);
-        if let Ok((ip, key)) = rt.block_on(DhtNode::find_address(&dht, &keyid)) {
+        if let Ok(Some((ip, key))) = DhtNode::find_address(&dht, &keyid).await {
             println!("Found {} / {}", ip, key.id());
             return Ok(())
         }
@@ -78,7 +77,7 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
             index, 
             nodes.len()
         );
-        if !rt.block_on(dht.find_dht_nodes(&nodes[index]))? {
+        if !dht.find_dht_nodes(&nodes[index]).await? {
             println!("DHT node {} is non-responsive", nodes[index]); 
             bad_nodes.push(nodes.remove(index))
         } else {
@@ -88,14 +87,15 @@ fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
 
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         println!("Usage: adnl_resolve <adnl-id> <path-to-global-config>");
         return
     };
     init_log("./common/config/log_cfg.yml");
-    scan(args[1].as_str(), args[2].as_str()).unwrap_or_else(
-        |e| println!("ADNL resolving error: {}", e)
-    )
+    if let Err(e) = scan(args[1].as_str(), args[2].as_str()).await {
+        println!("ADNL resolving error: {}", e)
+    }
 }
