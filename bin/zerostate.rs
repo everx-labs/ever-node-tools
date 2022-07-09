@@ -14,7 +14,8 @@
 use clap::{Arg, App};
 use serde_json::{Map, Value};
 use ton_block::{
-    Deserializable, Serializable, ShardIdent, ShardStateUnsplit, UnixTime32
+    ConfigParamEnum, ConfigParam12,
+    Deserializable, Serializable, ShardIdent, ShardStateUnsplit,
 };
 use ton_types::{serialize_toc, Result, UInt256, HashmapType};
 
@@ -25,9 +26,9 @@ fn import_zerostate(json: &str) -> Result<()> {
     // let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as u32;
     // mc_zero_state.set_gen_time(now);
     let mut extra = mc_zero_state.read_custom()?.expect("must be in mc state");
-    let mut wc_info = extra.config.workchains()?;
+    let mut workchains = extra.config.workchains()?;
     let mut wc_zero_state = vec![];
-    wc_info.clone().iterate_with_keys(|workchain_id, mut descr| {
+    workchains.clone().iterate_with_keys(|workchain_id, mut descr| {
         let shard = ShardIdent::with_tagged_prefix(workchain_id, ton_block::SHARD_FULL)?;
         // generate empty shard state and set desired fields
         let mut state = ShardStateUnsplit::with_ident(shard);
@@ -39,13 +40,13 @@ fn import_zerostate(json: &str) -> Result<()> {
         descr.zerostate_root_hash = cell.repr_hash();
         let bytes = ton_types::serialize_toc(&cell)?;
         descr.zerostate_file_hash = UInt256::calc_file_hash(&bytes);
-        wc_info.set(&workchain_id, &descr)?;
+        workchains.set(&workchain_id, &descr)?;
         let name = format!("{:x}.boc", descr.zerostate_file_hash);
         std::fs::write(name, &bytes)?;
         wc_zero_state.push(state);
         Ok(true)
     })?;
-    extra.config.config_params.setref(12u32.serialize()?.into(), &wc_info.serialize()?)?;
+    extra.config.set_config(ConfigParamEnum::ConfigParam12(ConfigParam12{workchains}))?;
     let ccvc = extra.config.catchain_config()?;
     let cur_validators = extra.config.validator_set()?;
     let (_validators, hash_short) = cur_validators.calc_subset(
@@ -53,7 +54,7 @@ fn import_zerostate(json: &str) -> Result<()> {
         ton_block::SHARD_FULL, 
         ton_block::MASTERCHAIN_ID, 
         0,
-        UnixTime32(now)
+        now.into()
     )?;
     extra.validator_info.validator_list_hash_short = hash_short;
     extra.validator_info.nx_cc_updated = true;

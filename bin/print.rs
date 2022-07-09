@@ -135,11 +135,13 @@ async fn main() -> Result<()> {
             db_directory: db_dir.to_string(), 
             cells_gc_interval_sec: 0
         };
-        let db = InternalDb::new(
+        let db = InternalDb::with_update(
             db_config, 
             #[cfg(feature = "telemetry")]
             create_engine_telemetry(),
-            create_engine_allocated()
+            create_engine_allocated(),
+            None,
+            None,
         ).await?;
         if let Some(block_id) = args.value_of("BLOCK") {
             let block_id = get_block_id(&db, block_id)?;
