@@ -13,6 +13,7 @@
 
 use adnl::{common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}};
 use ever_crypto::Ed25519KeyOption;
+use ever_crypto::BlsKeyOption;
 use clap::{Arg, App};
 use serde_json::{Map, Value};
 use std::{convert::TryInto, env, str::FromStr, time::Duration};
@@ -88,6 +89,7 @@ commands! {
     AddValidatorPermKey, "addpermkey", "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key"
     AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
     AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
+    AddValidatorBlsKey, "addblskey", "addblskey <permkeyhash> <keyhash> <expire-at>\t add validator bls key"
     AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
@@ -210,8 +212,20 @@ impl SendReceive for GetSessionStats {
 }
 
 impl SendReceive for NewKeypair {
-    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
-        Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair))
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let key_type = match params.next() {
+            None => Ed25519KeyOption::KEY_TYPE,
+            Some(param) => {
+                let mut param = param.to_string();
+                param.make_ascii_lowercase();
+                match param.as_ref() {
+                    "bls" => BlsKeyOption::KEY_TYPE,
+                    _ => fail!("invalid parameters!")
+                }
+            },
+        };
+        
+        Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair{key_type}))
     }
     fn receive<Q: ToString>(
         answer: TLObject, 
@@ -237,10 +251,14 @@ impl SendReceive for ExportPub {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let answer = downcast::<ton_api::ton::PublicKey>(answer)?;
-        let pub_key = answer
-            .key()
-            .ok_or_else(|| error!("Public key not found in answer!"))?
-            .into_vec();
+        let pub_key = match answer.key() {
+            Some(key) => key.into_vec(),
+            None => {
+                answer.bls_key()
+                    .ok_or_else(|| error!("Public key not found in answer!"))?
+                    .0.clone()
+            }
+        };
         Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
 }
@@ -272,6 +290,19 @@ impl SendReceive for AddValidatorPermKey {
         Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorPermanentKey {
             key_hash,
             election_date,
+            ttl
+        }))
+    }
+}
+
+impl SendReceive for AddValidatorBlsKey {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
+        let key_hash =  parse_int256(params.next(), "key_hash")?;
+        let ttl = parse_int(params.next(), "expire_at")? - now();
+        Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorBlsKey {
+            permanent_key_hash,
+            key_hash,
             ttl
         }))
     }
@@ -626,6 +657,16 @@ impl ControlClient {
         let (s, _) = self.process_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].iter()).await?;
         log::trace!("{}", s);
 
+        let (s, bls) = self.process_command("newkey", vec!["bls"].iter()).await?;
+        log::trace!("{}", s);
+        let bls_str = &hex::encode_upper(&bls)[..];
+
+        let (s, bls_pub_key) = self.process_command("exportpub", vec![bls_str].iter()).await?;
+        log::trace!("{}", s);
+
+        let (s, _) = self.process_command("addblskey", vec![perm_str, bls_str, elect_time_str].iter()).await?;
+        log::trace!("{}", s);
+
         // validator-elect-req.fif
         let mut data = 0x654C5074u32.to_be_bytes().to_vec();
         data.extend_from_slice(&elect_time.to_be_bytes());
@@ -647,10 +688,19 @@ impl ControlClient {
         data.extend_from_slice(&elect_time.to_be_bytes());
         data.extend_from_slice(&max_factor.to_be_bytes());
         data.extend_from_slice(&adnl);
+
+        data.extend_from_slice(&bls_pub_key[0..31]); // 256 bits
+
+        let mut data2 = BuilderData::new();
+        data2.append_raw(&bls_pub_key[32..], 18); // 128 bits
+        let len = signature.len() * 8;
+        data2.append_raw(signature.as_slice(), len)?;
+
         let len = data.len() * 8;
         let mut body = BuilderData::with_raw(data, len)?;
-        let len = signature.len() * 8;
-        body.append_reference(BuilderData::with_raw(signature, len)?);
+//        let len = signature.len() * 8;
+ //       body.append_reference(BuilderData::with_raw(signature, len)?);
+        body.append_reference(data2);
         let body = body.into_cell()?;
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;

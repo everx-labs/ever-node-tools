@@ -50,18 +50,59 @@ log4rs = '0.8.3'
 serde = '1.0.105'
 serde_json = '1.0.56'
 shell-words = '1.0.0'
-adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ton-labs-adnl', tag = '0.7.75' }
-dht = { git = 'https://github.com/tonlabs/ton-labs-dht', tag = '0.5.72' }
-ever-crypto = { git = 'https://github.com/tonlabs/ever-labs-crypto', tag = '0.1.29' }
-overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay', tag = '0.6.59' }
+adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ton-labs-adnl' }
+dht = { git = 'https://github.com/tonlabs/ton-labs-dht' }
+ever-crypto = { git ='https://github.com/tonlabs/ever-labs-crypto' }
+overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay' }
 tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
-ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.129' }
-ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.8.0' }
-ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', tag = '0.7.24' }
-ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', tag = '0.50.23' }
-ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.11.3' }
+ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api' }
+ton_block = { git = 'https://github.com/tonlabs/ton-labs-block' }
+ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git' }
+ton_node = { git = 'https://github.com/tonlabs/ton-labs-node' }
+ton_types = { git = 'https://github.com/tonlabs/ton-labs-types' }
 
 [features]
 default = [ 'telemetry' ]
 export_key = [ 'ever-crypto/export_key' ]
 telemetry = [ 'adnl/telemetry', 'dht/telemetry', 'overlay/telemetry' ]
+workchains = [ 'ton_node/workchains' ]
+
+[patch.'https://github.com/tonlabs/ton-labs-block.git']
+ton_block = { branch = 'feature-use-bls-key', git = 'ssh://git@github.com:22/tonlabs/ton-block.git' }
+#ton_block = { path = '../ton-block' }
+
+[patch.'ssh://git@github.com/tonlabs/ton-block.git']
+ton_block = { branch = 'feature-use-bls-key', git = 'ssh://git@github.com:22/tonlabs/ton-block.git' }
+#ton_block = { path = '../ton-block' }
+
+[patch.'https://github.com/tonlabs/ton-labs-block-json.git']
+ton_block_json = { branch = 'feature-use-bls-key', git = 'ssh://git@github.com:22/tonlabs/ton-block-json.git' }
+#ton_block_json = { path = '../ton-block-json' }
+
+[patch.'ssh://git@github.com/tonlabs/ton-block-json.git']
+ton_block_json = { branch = 'feature-use-bls-key', git = 'ssh://git@github.com:22/tonlabs/ton-block-json.git' }
+#ton_block_json = { path = '../ton-block-json' }
+
+[patch.'https://github.com/tonlabs/ton-labs-executor.git']
+ton_executor = { git = 'https://github.com/tonlabs/ton-labs-executor' }
+
+[patch.'https://github.com/tonlabs/ton-labs-types.git']
+ton_types = { git = 'https://github.com/tonlabs/ton-labs-types' }
+
+[patch.'https://github.com/tonlabs/ton-labs-vm.git']
+ton_vm = { git = 'ssh://git@github.com:22/tonlabs/ton-vm.git', branch = "feature-use-bls-key" }
+
+[patch.'ssh://git@github.com/tonlabs/ton-vm.git']
+ton_vm = { git = 'ssh://git@github.com:22/tonlabs/ton-vm.git', branch = "feature-use-bls-key" }
+
+[patch.'ssh://git@github.com/tonlabs/ton-tl.git']
+ton_api = { branch = 'feature-use-bls-keys', git = 'ssh://git@github.com:22/tonlabs/ton-tl.git', package = 'ton_api' }
+
+[patch.'ssh://git@github.com/tonlabs/ever-crypto.git']
+ever-crypto = { branch = 'feature-use-bls', git = 'ssh://git@github.com:22/tonlabs/ever-crypto.git' }
+
+[patch.'https://github.com/tonlabs/ton-labs-node']
+ton_node = { path = '../ton-node' }
+
+[patch.'ssh://git@github.com/tonlabs/ton-node.git']
+ton_node = { path = '../ton-node' }
