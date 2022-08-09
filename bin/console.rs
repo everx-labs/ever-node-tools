@@ -11,7 +11,9 @@
 * limitations under the License.
 */
 
-use adnl::{common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}};
+use adnl::{
+    common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
+};
 use ever_crypto::Ed25519KeyOption;
 use clap::{Arg, App};
 use serde_json::{Map, Value};
@@ -26,7 +28,9 @@ use ton_api::{
 };
 #[cfg(feature = "telemetry")]
 use ton_api::tag_from_bare_object;
-use ton_block::{AccountStatus, ShardAccount, Deserializable, BlockIdExt, Serializable};
+use ton_block::{
+    AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
+};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
 
 include!("../common/src/test.rs");
@@ -582,10 +586,10 @@ impl ControlClient {
     // @output validator-query.boc
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
         let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
-            if !value.starts_with("-1:") {
-                fail!("use masterchain wallet")
+            match value.strip_prefix("-1:") {
+                Some(stripped) => Ok(hex::decode(stripped)?),
+                None => fail!("use masterchain wallet")
             }
-            Ok(hex::decode(&value[3..])?)
         })?;
         let elect_time = parse_int(params.next(), "elect_time")?;
         if elect_time <= 0 {

@@ -136,12 +136,15 @@ async fn main() -> Result<()> {
             cells_gc_interval_sec: 0
         };
         let db = InternalDb::with_update(
-            db_config, 
+            db_config,
+            false,
+            false,
+            false,
+            &|| Ok(()),
+            None,
             #[cfg(feature = "telemetry")]
             create_engine_telemetry(),
             create_engine_allocated(),
-            None,
-            None,
         ).await?;
         if let Some(block_id) = args.value_of("BLOCK") {
             let block_id = get_block_id(&db, block_id)?;
