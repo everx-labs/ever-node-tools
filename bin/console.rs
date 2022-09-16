@@ -11,7 +11,9 @@
 * limitations under the License.
 */
 
-use adnl::{common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}};
+use adnl::{
+    common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
+};
 use ever_crypto::Ed25519KeyOption;
 use ever_crypto::BlsKeyOption;
 use clap::{Arg, App};
@@ -27,7 +29,9 @@ use ton_api::{
 };
 #[cfg(feature = "telemetry")]
 use ton_api::tag_from_bare_object;
-use ton_block::{AccountStatus, ShardAccount, Deserializable, BlockIdExt, Serializable};
+use ton_block::{
+    AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
+};
 use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
 
 include!("../common/src/test.rs");
@@ -613,10 +617,10 @@ impl ControlClient {
     // @output validator-query.boc
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
         let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
-            if !value.starts_with("-1:") {
-                fail!("use masterchain wallet")
+            match value.strip_prefix("-1:") {
+                Some(stripped) => Ok(hex::decode(stripped)?),
+                None => fail!("use masterchain wallet")
             }
-            Ok(hex::decode(&value[3..])?)
         })?;
         let elect_time = parse_int(params.next(), "elect_time")?;
         if elect_time <= 0 {
@@ -847,3 +851,691 @@ async fn main() {
     client.shutdown().await.ok();
 }
 
+#[cfg(test)]
+mod test {
+    
+    use super::*;
+    use std::{fs, path::Path, sync::Arc, thread};
+    use storage::block_handle_db::BlockHandle;
+    use ton_api::deserialize_boxed;
+    use ton_block::{
+        generate_test_account_by_init_code_hash,
+        BlockLimits, ConfigParam0, ConfigParam34, ConfigParamEnum, McStateExtra, ParamLimits, 
+        ShardIdent, ShardStateUnsplit, ValidatorDescr, ValidatorSet
+    };
+    use ton_node::{
+        collator_test_bundle::{create_engine_telemetry, create_engine_allocated},
+        config::TonNodeConfig, engine_traits::{EngineAlloc, EngineOperations},
+        internal_db::{InternalDbConfig, InternalDb}, 
+        network::{control::{ControlServer, DataSource}, node_network::NodeNetwork},
+        shard_state::ShardStateStuff
+    };
+    #[cfg(feature = "telemetry")]
+    use ton_node::engine_traits::EngineTelemetry;
+
+    const CFG_DIR: &str = "./target";
+    const CFG_NODE_FILE: &str = "light_node.json";
+    const CFG_GLOB_FILE: &str = "light_global.json";
+    const DB_PATH: &str = "./target/node_db";
+
+    struct TestEngine {
+        db: InternalDb,
+        master_state: Arc<ShardStateStuff>,
+        master_state_id: BlockIdExt,
+        shard_state: Arc<ShardStateStuff>,
+        shard_state_id: BlockIdExt,
+        validation_status: lockfree::map::Map<ShardIdent, u64>
+    }
+
+    impl TestEngine {
+        async fn new(
+            #[cfg(feature = "telemetry")]
+            telemetry: Arc<EngineTelemetry>,
+            allocated: Arc<EngineAlloc>
+        ) -> Self {
+
+            let mut ss = ShardStateUnsplit::with_ident(ShardIdent::full(0));
+            let account = generate_test_account_by_init_code_hash(false);
+            let account_id = UInt256::from(account.get_id().unwrap().get_next_hash().unwrap());
+            ss.insert_account(
+                &account_id, 
+                &ShardAccount::with_params(&account, UInt256::default(), 0).unwrap()
+            ).unwrap();
+            let cell = ss.serialize().unwrap();
+            let bytes = ton_types::serialize_toc(&cell).unwrap();
+            let shard_state_id = BlockIdExt::with_params(
+                ShardIdent::full(0),
+                0,
+                cell.repr_hash(),
+                UInt256::calc_file_hash(&bytes)
+            );
+            let shard_state = ShardStateStuff::deserialize_zerostate(
+                shard_state_id.clone(), 
+                &bytes,
+                #[cfg(feature = "telemetry")]
+                &telemetry,
+                &allocated
+            ).unwrap();
+
+            let mut ss = ShardStateUnsplit::with_ident(ShardIdent::masterchain());
+            let mut ms = McStateExtra::default();
+            let mut param = ConfigParam0::new();
+            param.config_addr = UInt256::from([1;32]);
+            ms.config.set_config(ConfigParamEnum::ConfigParam0(param)).unwrap();
+            let mut param = ConfigParam34::new();
+            param.cur_validators = ValidatorSet::new(
+                1600000000,
+                1610000000,
+                1,
+                vec![ValidatorDescr::default()]
+            ).unwrap();
+            ms.config.set_config(ConfigParamEnum::ConfigParam34(param)).unwrap();
+            ms.shards.add_workchain(
+                0, 
+                0,
+                shard_state_id.root_hash.clone(),
+                shard_state_id.file_hash.clone()
+            ).unwrap();
+            ss.write_custom(Some(&ms)).unwrap();
+
+            let cell = ss.serialize().unwrap();
+            let bytes = ton_types::serialize_toc(&cell).unwrap();
+            let master_state_id = BlockIdExt::with_params(
+                ShardIdent::masterchain(),
+                0,
+                cell.repr_hash(),
+                UInt256::calc_file_hash(&bytes)
+            );
+            let master_state = ShardStateStuff::deserialize_zerostate(
+                master_state_id.clone(), 
+                &bytes,
+                #[cfg(feature = "telemetry")]
+                &telemetry,
+                &allocated
+            ).unwrap();
+
+            fs::remove_dir_all(DB_PATH).ok();
+            let db_config = InternalDbConfig {
+                db_directory: String::from(DB_PATH),
+                cells_gc_interval_sec: 0
+            };
+            let db = InternalDb::with_update(
+                db_config, 
+                #[cfg(feature = "telemetry")]
+                telemetry.clone(),
+                allocated.clone(),
+                None,
+                None 
+            ).await.unwrap();
+            db.create_or_load_block_handle(
+                &master_state_id,
+                None,
+                Some(1),
+                None
+            ).unwrap()._as_created().unwrap();
+
+            Self {
+                db, 
+                master_state, 
+                master_state_id,
+                shard_state, 
+                shard_state_id,
+                validation_status: lockfree::map::Map::new()
+            }
+
+        }
+
+    }
+
+    impl Drop for TestEngine {
+        fn drop(&mut self) {
+            fs::remove_file(Path::new(CFG_DIR).join(CFG_NODE_FILE)).ok();
+            fs::remove_file(Path::new(CFG_DIR).join(CFG_GLOB_FILE)).ok();         
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EngineOperations for TestEngine {
+        fn calc_tps(&self, _period: u64) -> Result<u32> {
+            Ok(0)
+        }
+        fn collation_status(&self) -> &lockfree::map::Map<ShardIdent, u64> {
+            &self.validation_status
+        }
+        fn get_sync_status(&self) -> u32 {
+            0
+        }
+        fn load_block_handle(&self, id: &BlockIdExt) -> Result<Option<Arc<BlockHandle>>> {
+            self.db.load_block_handle(id)
+        }
+        fn load_last_applied_mc_block_id(&self) -> Result<Option<Arc<BlockIdExt>>> {
+            Ok(Some(Arc::new(self.master_state_id.clone())))
+        }
+        async fn load_last_applied_mc_state(&self) -> Result<Arc<ShardStateStuff>> {
+            Ok(self.master_state.clone())   
+        }
+        fn load_shard_client_mc_block_id(&self) -> Result<Option<Arc<BlockIdExt>>> {
+            Ok(Some(Arc::new(self.master_state_id.clone())))
+        }
+        async fn load_state(&self, block_id: &BlockIdExt) -> Result<Arc<ShardStateStuff>> {
+            if block_id == &self.master_state_id {
+                Ok(self.master_state.clone())   
+            } else if block_id == &self.shard_state_id {
+                Ok(self.shard_state.clone())   
+            } else {
+                fail!("Wrong block ID {}", block_id)
+            }
+        }
+        fn validation_status(&self) -> &lockfree::map::Map<ShardIdent, u64> {
+            &self.validation_status
+        }
+    }
+    
+    const ADNL_SERVER_CONFIG: &str = r#"{
+        "ton_global_config_name": "light_global.json",
+        "adnl_node": {
+            "ip_address": "127.0.0.1:4191",
+            "keys": [
+                {
+                    "tag": 1,
+                    "data": {
+                        "type_id": 1209251014,
+                        "pvt_key": "x3osWUUfcdybRLcmH7mJer4S0NM7TDpEw4SCftKD7bY="
+                    }
+                },
+                {
+                    "tag": 2,
+                    "data": {
+                        "type_id": 1209251014,
+                        "pvt_key": "K56upUuRmuZrXhuExmmgr3DQt5Ae12XXQDXUXeGCQxg="
+                    }
+                }
+            ]
+        },
+        "control_server": {
+            "address": "127.0.0.1:4924",
+            "server_key": {
+                "type_id": 1209251014,
+                "pvt_key": "cJIxGZviebMQWL726DRejqVzRTSXPv/1sO/ab6XOZXk="
+            },
+            "clients": {
+                "list": [
+                    {
+                        "type_id": 1209251014,
+                        "pub_key": "RYokIiD5AFkzfTBgC6NhtAGFKm0+gwhN4suTzaW0Sjw="
+                    }
+                ]
+            }
+        }
+    }"#;
+
+    const ADNL_CLIENT_CONFIG: &str = r#"{
+        "config": {
+            "server_address": "127.0.0.1:4924",
+            "server_key": {
+                "type_id": 1209251014,
+                "pub_key": "cujCRU4rQbSw48yHVHxQtRPhUlbo+BuZggFTQSu04Y8="
+            },
+            "client_key": {
+                "type_id": 1209251014,
+                "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
+            }
+        },
+        "wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
+        "max_factor": 2.7
+    }"#;
+
+    const GLOBAL_CONFIG: &str = r#"{
+        "validator": {
+            "zero_state": {
+                "workchain": -1,
+                "shard": -9223372036854775808,
+                "seqno": 0,
+                "root_hash": "6Jb3GskUbO+HxaCnKQPEDPSxCkck7zHL//xPwAmBql0=",
+                "file_hash": "Ti5G+UTHu6MTe2IVmMZ7VcQz+dBpET+NApZm+0B4kfc="
+            }
+        }
+    }"#;
+
+    const SAMPLE_ZERO_STATE: &str = r#"{
+        "id": "-1:8000000000000000",
+        "workchain_id": -1,
+        "boc": "",
+        "global_id": 42,
+        "shard": "8000000000000000",
+        "seq_no": 0,
+        "vert_seq_no": 0,
+        "gen_utime": 1600000000,
+        "gen_lt": "0",
+        "min_ref_mc_seqno": 4294967295,
+        "before_split": false,
+        "overload_history": "0",
+        "underload_history": "0",
+        "total_balance": "4993357197000000000",
+        "total_validator_fees": "0",
+        "master": {
+            "config_addr": "5555555555555555555555555555555555555555555555555555555555555555",
+            "config": {
+            "p0": "5555555555555555555555555555555555555555555555555555555555555555",
+            "p1": "3333333333333333333333333333333333333333333333333333333333333333",
+            "p2": "0000000000000000000000000000000000000000000000000000000000000000",
+            "p7": [],
+            "p8": {
+                "version": 5,
+                "capabilities": "46"
+            },
+            "p9": [ 0 ],
+            "p10": [ 0 ],
+            "p11": {
+                "normal_params": {
+                    "min_tot_rounds": 2,
+                    "max_tot_rounds": 3,
+                    "min_wins": 2,
+                    "max_losses": 2,
+                    "min_store_sec": 1000000,
+                    "max_store_sec": 10000000,
+                    "bit_price": 1,
+                    "cell_price": 500
+                },
+                "critical_params": {
+                    "min_tot_rounds": 4,
+                    "max_tot_rounds": 7,
+                    "min_wins": 4,
+                    "max_losses": 2,
+                    "min_store_sec": 5000000,
+                    "max_store_sec": 20000000,
+                    "bit_price": 2,
+                    "cell_price": 1000
+                }
+            },
+            "p12": [],
+            "p13": {
+                "boc": "te6ccgEBAQEADQAAFRpRdIdugAEBIB9I"
+            },
+            "p14": {
+                "masterchain_block_fee": "1700000000",
+                "basechain_block_fee": "1000000000"
+            },
+            "p15": {
+                "validators_elected_for": 65536,
+                "elections_start_before": 32768,
+                "elections_end_before": 8192,
+                "stake_held_for": 32768
+            },
+            "p16": {
+                "max_validators": 1000,
+                "max_main_validators": 100,
+                "min_validators": 5
+            },
+            "p17": {
+                "min_stake": "10000000000000",
+                "max_stake": "10000000000000000",
+                "min_total_stake": "100000000000000",
+                "max_stake_factor": 196608
+            },
+            "p18": [
+                {
+                "utime_since": 0,
+                "bit_price_ps": "1",
+                "cell_price_ps": "500",
+                "mc_bit_price_ps": "1000",
+                "mc_cell_price_ps": "500000"
+                }
+            ],
+            "p20": {
+                "flat_gas_limit": "1000",
+                "flat_gas_price": "10000000",
+                "gas_price": "655360000",
+                "gas_limit": "1000000",
+                "special_gas_limit": "100000000",
+                "gas_credit": "10000",
+                "block_gas_limit": "10000000",
+                "freeze_due_limit": "100000000",
+                "delete_due_limit": "1000000000"
+            },
+            "p21": {
+                "flat_gas_limit": "1000",
+                "flat_gas_price": "1000000",
+                "gas_price": "65536000",
+                "gas_limit": "1000000",
+                "special_gas_limit": "1000000",
+                "gas_credit": "10000",
+                "block_gas_limit": "10000000",
+                "freeze_due_limit": "100000000",
+                "delete_due_limit": "1000000000"
+            },
+            "p22": {
+                "bytes": {
+                    "underload": 131072,
+                    "soft_limit": 524288,
+                    "hard_limit": 1048576
+                },
+                "gas": {
+                    "underload": 900000,
+                    "soft_limit": 1200000,
+                    "hard_limit": 2000000
+                },
+                "lt_delta": {
+                    "underload": 1000,
+                    "soft_limit": 5000,
+                    "hard_limit": 10000
+                }
+            },
+            "p23": {
+                "bytes": {
+                    "underload": 131072,
+                    "soft_limit": 524288,
+                    "hard_limit": 1048576
+                },
+                "gas": {
+                    "underload": 900000,
+                    "soft_limit": 1200000,
+                    "hard_limit": 2000000
+                },
+                "lt_delta": {
+                    "underload": 1000,
+                    "soft_limit": 5000,
+                    "hard_limit": 10000
+                }
+            },
+            "p24": {
+                "lump_price": "10000000",
+                "bit_price": "655360000",
+                "cell_price": "65536000000",
+                "ihr_price_factor": 98304,
+                "first_frac": 21845,
+                "next_frac": 21845
+            },
+            "p25": {
+                "lump_price": "1000000",
+                "bit_price": "65536000",
+                "cell_price": "6553600000",
+                "ihr_price_factor": 98304,
+                "first_frac": 21845,
+                "next_frac": 21845
+            },
+            "p28": {
+                "shuffle_mc_validators": true,
+                "mc_catchain_lifetime": 250,
+                "shard_catchain_lifetime": 250,
+                "shard_validators_lifetime": 1000,
+                "shard_validators_num": 7
+            },
+            "p29": {
+                "new_catchain_ids": true,
+                "round_candidates": 3,
+                "next_candidate_delay_ms": 2000,
+                "consensus_timeout_ms": 16000,
+                "fast_attempts": 3,
+                "attempt_duration": 8,
+                "catchain_max_deps": 4,
+                "max_block_bytes": 2097152,
+                "max_collated_bytes": 2097152
+            },
+            "p31": [
+                "0000000000000000000000000000000000000000000000000000000000000000"
+            ],
+            "p34": {
+                "utime_since": 1600000000,
+                "utime_until": 1610000000,
+                "total": 1,
+                "main": 1,
+                "total_weight": "17",
+                "list": [
+                    {
+                        "public_key": "2e7eb5a711ed946605a91e36037c4cb927181eff4bb277b175d891a588d03536",
+                        "weight": "17"
+                    }
+                ]
+            }
+            },
+            "validator_list_hash_short": 871956759,
+            "catchain_seqno": 0,
+            "nx_cc_updated": true,
+            "after_key_block": true,
+            "global_balance": "4993357197000000000"
+        },
+        "accounts": [],
+        "libraries": [],
+        "out_msg_queue_info": {
+            "out_queue": [],
+            "proc_info": [],
+            "ihr_pending": []
+        }
+    }"#;
+
+    async fn init_test() -> (ControlServer, ControlClient) {
+        init_test_log();
+        std::fs::write(Path::new(CFG_DIR).join(CFG_NODE_FILE), ADNL_SERVER_CONFIG).unwrap();
+        std::fs::write(Path::new(CFG_DIR).join(CFG_GLOB_FILE), GLOBAL_CONFIG).unwrap();
+        let node_config = TonNodeConfig::from_file(
+            CFG_DIR, CFG_NODE_FILE, None, "", None
+        ).unwrap();
+        let control_server_config = node_config.control_server().unwrap();
+        let config = control_server_config.expect("must have control server setting");
+        #[cfg(feature = "telemetry")]
+        let telemetry = create_engine_telemetry();
+        let allocated = create_engine_allocated();
+        let network = NodeNetwork::new(
+            node_config,
+            #[cfg(feature = "telemetry")]
+            telemetry.clone(),
+            allocated.clone()
+        ).await.unwrap();
+        let engine = TestEngine::new(
+            #[cfg(feature = "telemetry")]
+            telemetry, 
+            allocated
+        ).await;
+        let server = ControlServer::with_params(
+            config,
+            DataSource::Engine(Arc::new(engine)), 
+            network.config_handler(),//.clone(), 
+            network.config_handler(),//.clone(),
+            Some(&network)//None
+        ).await.unwrap();
+        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
+        let client = ControlClient::connect(config).await.unwrap();
+        (server, client)
+    }
+
+    async fn done_test(server: ControlServer, client: ControlClient) {
+        server.shutdown().await;
+        client.shutdown().await.ok();
+        loop {
+            if fs::remove_dir_all(DB_PATH).is_ok() {
+                break
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
+        let (server, mut client) = init_test().await;
+        let (_, result) = client.command(cmd).await.unwrap();
+        check_result(result);
+        done_test(server, client).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_new_key_one() {
+        let cmd = "newkey";
+        test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_nonexist_account() {
+        let account = "-1:5555555555555555555555555555555555555555555555555555555555555555";
+        let cmd = format!(r#"getaccount {}"#, account);
+        let mut etalon_result = String::from("{");
+        etalon_result.push_str("\n\"");
+        etalon_result.push_str("acc_type\":\t\"Nonexist");
+        etalon_result.push_str("\"\n}");
+        test_one_cmd(&cmd, |result| assert_eq!(result, etalon_result.as_bytes().to_vec())).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_active_account() {
+        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
+        let cmd = format!(r#"getaccount {}"#, account);
+        let mut etalon_result = String::from("{");
+        etalon_result.push_str("\n\"");
+        etalon_result.push_str("acc_type\":\t\"Active");
+        let etalon_result = etalon_result.as_bytes().to_vec();
+        test_one_cmd(&cmd, |result| assert_eq!(result[..etalon_result.len()], etalon_result)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_account_state() {
+        const OUT_FILE: &str = "./target/test_file.boc";
+        let account = "983217:0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F";
+        let cmd = format!(r#"getaccountstate {} {}"#, account, OUT_FILE);
+        test_one_cmd(
+            &cmd, 
+            |result| { 
+                assert_eq!(result.len(), 257);
+                fs::remove_file(OUT_FILE).unwrap();
+            }
+        ).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_stats() {
+        let ethalon_stats = [
+            ("sync_status","\"no_set_status\""),
+            ("masterchainblocktime", "1"),
+            ("masterchainblocknumber", "0"),
+            ("public_overlay_key_id", "\"b52Bb8xv6roWwIDGQnBIdL7hsl3Sy3Ro9ITEV9UlIz8=\""),
+            ("in_current_vset_p34", "false"),
+            ("in_next_vset_p36", "false"),
+            ("validation_stats", "{}"),
+            ("collation_stats", "{}"),
+        ];
+        let cmd = "getstats";
+        test_one_cmd(
+            cmd, 
+            |result| {
+                let stats = deserialize_boxed(&result).unwrap();
+                let stats = downcast::<ton_api::ton::engine::validator::Stats>(stats).unwrap();
+                let stats = stats.only().stats;
+                for stat in stats.iter() {
+                    match ethalon_stats.iter().find(|(key, _)| key == &stat.key) {
+                        Some((_, value)) => assert_eq!(&stat.value, value),
+                        None => println!("unknown stats: {} => {}", stat.key, stat.value)
+                    }
+                }
+            }
+        ).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_election_bid() {
+        const OUT_FILE: &str = "./target/test_file.boc";
+        let now = now() + 86400;
+        let cmd = format!("election-bid {} {} \"{}\"", now, now + 10001, OUT_FILE);
+        test_one_cmd(
+            &cmd, 
+            |result| {
+                assert_eq!(result.len(), 164);
+                fs::remove_file(OUT_FILE).unwrap();
+            }
+        ).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_recover_stake() {
+        const OUT_FILE: &str = "./target/test_file.boc";
+        let cmd = format!("recover_stake \"{}\"", OUT_FILE);
+        test_one_cmd(
+            &cmd, 
+            |result| {
+                assert_eq!(result.len(), 25);
+                fs::remove_file(OUT_FILE).unwrap();
+            }
+        ).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_config_param() {
+        const IN_FILE: &str = "./target/zerostate.json";
+        const OUT_FILE: &str = "./target/test_file.boc";
+        std::fs::write(IN_FILE, SAMPLE_ZERO_STATE).unwrap();
+        let cmd = format!("cparam 23 \"{}\" \"{}\"", IN_FILE, OUT_FILE);
+        test_one_cmd(
+            &cmd, 
+            |result| {
+                assert_eq!(result.len(), 53);
+                let limits = BlockLimits::construct_from_bytes(&result).unwrap();
+                assert_eq!(
+                    limits.bytes(), 
+                    &ParamLimits::with_limits(131072, 524288, 1048576).unwrap()
+                );
+                assert_eq!(
+                    limits.gas(), 
+                    &ParamLimits::with_limits(900000, 1200000, 2000000).unwrap()
+                );
+                assert_eq!(
+                    limits.lt_delta(), 
+                    &ParamLimits::with_limits(1000, 5000, 10000).unwrap()
+                );
+                fs::remove_file(IN_FILE).unwrap();
+                fs::remove_file(OUT_FILE).unwrap();
+            }
+        ).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_new_key_with_export() {
+        let (server, mut client) = init_test().await;
+        let (_, result) = client.command("newkey").await.unwrap();
+        assert_eq!(result.len(), 32);
+        let cmd = format!("exportpub {}", base64::encode(&result));
+        let (_, result) = client.command(&cmd).await.unwrap();
+        assert_eq!(result.len(), 32);
+        done_test(server, client).await;
+    }
+
+    macro_rules! parse_test {
+        ($func:expr, $param:expr) => {
+            $func($param.split_whitespace().next(), "test")
+        };
+    }
+
+    #[test]
+    fn test_parse_int() {
+        assert_eq!(parse_test!(parse_int, "0").unwrap(), 0);
+        assert_eq!(parse_test!(parse_int, "-1").unwrap(), -1);
+        assert_eq!(parse_test!(parse_int, "1600000000").unwrap(), 1600000000);
+        parse_test!(parse_int, "qwe").expect_err("must generate error");
+        parse_int(Option::<&str>::None, "test").expect_err("must generate error");
+    }
+
+    #[test]
+    fn test_parse_int256() {
+        let ethalon = "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=";
+        assert_eq!(
+            parse_test!(parse_int256, ethalon).unwrap(), 
+            UInt256::from_str(ethalon).unwrap()
+        );
+        assert_eq!(
+            parse_test!(
+                parse_int256, 
+                "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F"
+            ).unwrap(), 
+            UInt256::from_str(ethalon).unwrap()
+        );
+        parse_test!(parse_int256, "11").expect_err("must generate error");
+        parse_int256(Option::<&str>::None, "test").expect_err("must generate error");
+    }
+
+    #[test]
+    fn test_parse_data() {
+        let ethalon = ton::bytes(vec![10, 77]);
+        assert_eq!(parse_test!(parse_data, "0A4D").unwrap(), ethalon);
+        parse_test!(parse_data, "QQ").expect_err("must generate error");
+        parse_test!(parse_data, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=")
+            .expect_err("must generate error");
+        parse_data(Option::<&str>::None, "test").expect_err("must generate error");
+    }
+
+}
