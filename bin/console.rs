@@ -888,6 +888,7 @@ mod test {
     }
 
     impl TestEngine {
+
         async fn new(
             #[cfg(feature = "telemetry")]
             telemetry: Arc<EngineTelemetry>,
@@ -961,18 +962,21 @@ mod test {
             };
             let db = InternalDb::with_update(
                 db_config, 
+                false,
+                false,
+                false,
+                &|| Ok(()),
+                None,
                 #[cfg(feature = "telemetry")]
                 telemetry.clone(),
-                allocated.clone(),
-                None,
-                None 
+                allocated.clone()
             ).await.unwrap();
             db.create_or_load_block_handle(
                 &master_state_id,
                 None,
                 Some(1),
                 None
-            ).unwrap()._as_created().unwrap();
+            ).unwrap()._to_created().unwrap();
 
             Self {
                 db, 
@@ -983,6 +987,10 @@ mod test {
                 validation_status: lockfree::map::Map::new()
             }
 
+        }
+
+        async fn stop(&self) {
+            self.db.stop_states_db().await    
         }
 
     }
@@ -1304,7 +1312,7 @@ mod test {
         }
     }"#;
 
-    async fn init_test() -> (ControlServer, ControlClient) {
+    async fn init_test() -> (ControlServer, ControlClient, Arc<TestEngine>) {
         init_test_log();
         std::fs::write(Path::new(CFG_DIR).join(CFG_NODE_FILE), ADNL_SERVER_CONFIG).unwrap();
         std::fs::write(Path::new(CFG_DIR).join(CFG_GLOB_FILE), GLOBAL_CONFIG).unwrap();
@@ -1327,21 +1335,24 @@ mod test {
             telemetry, 
             allocated
         ).await;
+        let engine = Arc::new(engine);
         let server = ControlServer::with_params(
             config,
-            DataSource::Engine(Arc::new(engine)), 
+            DataSource::Engine(engine.clone()), 
             network.config_handler(),//.clone(), 
             network.config_handler(),//.clone(),
             Some(&network)//None
         ).await.unwrap();
         let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
         let client = ControlClient::connect(config).await.unwrap();
-        (server, client)
+        (server, client, engine)
     }
 
-    async fn done_test(server: ControlServer, client: ControlClient) {
+    async fn done_test(server: ControlServer, client: ControlClient, engine: Arc<TestEngine>) {
         server.shutdown().await;
         client.shutdown().await.ok();
+        engine.stop().await;
+        drop(engine);
         loop {
             if fs::remove_dir_all(DB_PATH).is_ok() {
                 break
@@ -1351,10 +1362,10 @@ mod test {
     }
 
     async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
-        let (server, mut client) = init_test().await;
+        let (server, mut client, engine) = init_test().await;
         let (_, result) = client.command(cmd).await.unwrap();
         check_result(result);
-        done_test(server, client).await;
+        done_test(server, client, engine).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1410,6 +1421,9 @@ mod test {
             ("in_next_vset_p36", "false"),
             ("validation_stats", "{}"),
             ("collation_stats", "{}"),
+            ("processed_workchain", "\"masterchain\""),
+            ("tps_10", "0"),
+            ("tps_300", "0"),
         ];
         let cmd = "getstats";
         test_one_cmd(
@@ -1486,13 +1500,13 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_new_key_with_export() {
-        let (server, mut client) = init_test().await;
+        let (server, mut client, engine) = init_test().await;
         let (_, result) = client.command("newkey").await.unwrap();
         assert_eq!(result.len(), 32);
         let cmd = format!("exportpub {}", base64::encode(&result));
         let (_, result) = client.command(&cmd).await.unwrap();
         assert_eq!(result.len(), 32);
-        done_test(server, client).await;
+        done_test(server, client, engine).await;
     }
 
     macro_rules! parse_test {
