@@ -655,7 +655,7 @@ impl ControlClient {
         let len = data.len() * 8;
         let mut body = BuilderData::with_raw(data, len)?;
         let len = signature.len() * 8;
-        body.append_reference(BuilderData::with_raw(signature, len)?);
+        body.checked_append_reference(BuilderData::with_raw(signature, len)?.into_cell()?)?;
         let body = body.into_cell()?;
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
