@@ -59,9 +59,9 @@ serde = '1.0.105'
 serde_json = '1.0.56'
 shell-words = '1.0.0'
 adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ton-labs-adnl', tag = '0.7.119' }
-dht = { git = 'https://github.com/tonlabs/ton-labs-dht', tag = '0.5.130' }
+dht = { git = 'https://github.com/tonlabs/ton-labs-dht', tag = '0.5.131' }
 ever-crypto = { git = 'https://github.com/tonlabs/ever-labs-crypto', tag = '0.1.80' }
-overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay', tag = '0.6.113' }
+overlay = { git = 'https://github.com/tonlabs/ton-labs-overlay', tag = '0.6.114' }
 tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
 ton_api = { git = 'https://github.com/tonlabs/ton-labs-tl', package = 'ton_api', tag = '0.2.167' }
 ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', tag = '1.9.18' }
