@@ -31,7 +31,7 @@ use ton_api::tag_from_bare_object;
 use ton_block::{
     AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
 };
-use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
+use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256, SliceData};
 
 include!("../common/src/test.rs");
 
@@ -222,7 +222,7 @@ impl SendReceive for NewKeypair {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let answer = downcast::<ton_api::ton::engine::validator::KeyHash>(answer)?;
-        let key_hash = answer.key_hash().into_vec();
+        let key_hash = answer.key_hash().as_slice().to_vec();
         Ok((format!("received public key hash: {} {}", 
             hex::encode(&key_hash), base64::encode(&key_hash)), key_hash
         ))
@@ -244,7 +244,8 @@ impl SendReceive for ExportPub {
         let pub_key = answer
             .key()
             .ok_or_else(|| error!("Public key not found in answer!"))?
-            .into_vec();
+            .as_slice()
+            .to_vec();
         Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
 }
@@ -654,7 +655,7 @@ impl ControlClient {
         let len = data.len() * 8;
         let mut body = BuilderData::with_raw(data, len)?;
         let len = signature.len() * 8;
-        body.append_reference(BuilderData::with_raw(signature, len)?);
+        body.checked_append_reference(BuilderData::with_raw(signature, len)?.into_cell()?)?;
         let body = body.into_cell()?;
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
@@ -680,10 +681,11 @@ impl ControlClient {
         let zerostate = ton_block_json::parse_state(&zerostate)
             .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
 
+        let key = SliceData::load_builder(index.write_to_new_cell()?)?;
         let config_param_cell = zerostate.read_custom()
             .map_err(|err| error!("Can't read McStateExtra from zerostate: {}", err))?
             .ok_or_else(|| error!("Can't find McStateExtra in zerostate"))?
-            .config().config_params.get(index.serialize()?.into())
+            .config().config_params.get(key)
             .map_err(|err| error!("Can't read config param {} from zerostate: {}", index, err))?
             .ok_or_else(|| error!("Can't find config param {} in zerostate", index))?
             .reference_opt(0)

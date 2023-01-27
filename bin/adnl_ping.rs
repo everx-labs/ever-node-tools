@@ -71,7 +71,7 @@ fn ping(
     )?;
 
     rt.block_on(AdnlNode::start(&adnl, vec![overlay.clone()]))?;
-    if !rt.block_on(async { overlay.add_shard(None, &overlay_id) })? {
+    if !rt.block_on(async { overlay.add_local_workchain_overlay(None, &overlay_id) })? {
         fail!("Cannot add overlay {}", overlay_id)
     }
     let local_key = adnl.key_by_tag(KEY_TAG)?;
