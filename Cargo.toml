@@ -50,6 +50,7 @@ log4rs = '1.1'
 serde = '1.0.105'
 serde_json = '1.0.56'
 shell-words = '1.0.0'
+num-bigint = '0.4'
 adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ton-labs-adnl', tag = '0.7.77' }
 dht = { git = 'https://github.com/tonlabs/ton-labs-dht', tag = '0.5.74' }
 ever-crypto = { git = 'https://github.com/tonlabs/ever-labs-crypto', branch = 'consensus-updates' }
@@ -60,6 +61,7 @@ ton_block = { git = 'https://github.com/tonlabs/ton-labs-block', branch = 'conse
 ton_block_json = { git = 'https://github.com/tonlabs/ton-labs-block-json.git', branch = 'consensus-updates' }
 ton_node = { git = 'https://github.com/tonlabs/ton-labs-node', branch = 'consensus-updates' }
 ton_types = { git = 'https://github.com/tonlabs/ton-labs-types', tag = '1.11.4' }
+ton_abi = { git = 'https://github.com/tonlabs/ton-labs-abi.git', tag = '2.3.20' }
 
 [features]
 default = [ 'telemetry' ]

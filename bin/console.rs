@@ -19,6 +19,12 @@ use ever_crypto::BlsKeyOption;
 use clap::{Arg, App};
 use serde_json::{Map, Value};
 use std::{convert::TryInto, env, str::FromStr, time::Duration};
+use std::collections::HashMap;
+use num_bigint::BigUint;
+use ton_abi::TokenValue;
+use ton_abi::Token;
+use ton_abi::Contract;
+use ton_abi::Uint;
 use ton_api::{
     serialize_boxed,
     ton::{
@@ -35,6 +41,9 @@ use ton_block::{
 use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
 
 include!("../common/src/test.rs");
+
+const ELECTOR_ABI: &[u8] = include_bytes!("Elector.abi.json"); //elector's ABI
+const ELECTOR_PROCESS_NEW_STAKE_FUNC_NAME: &str = "process_new_stake"; //elector process_new_stake function name
 
 trait SendReceive {
     fn send<Q: ToString>(params: impl Iterator<Item = Q>) -> Result<TLObject>;
@@ -613,6 +622,14 @@ impl ControlClient {
         Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
     }
 
+    fn convert_to_uint(value: &[u8], bytes_count: usize) -> TokenValue {
+        assert!(value.len() == bytes_count);
+        TokenValue::Uint(Uint {
+            number: BigUint::from_bytes_be(value),
+            size: value.len() * 8,
+        })
+    }
+
     // @input elect_time expire_time <validator-query.boc>
     // @output validator-query.boc
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
@@ -684,8 +701,42 @@ impl ControlClient {
         Ed25519KeyOption::from_public_key(&pub_key[..].try_into()?)
             .verify(&data, &signature)?;
 
+        let contract = Contract::load(ELECTOR_ABI).expect("Elector's ABI must be valid");
+        let process_new_stake_fn = contract
+            .function(ELECTOR_PROCESS_NEW_STAKE_FUNC_NAME)
+            .expect("Elector contract must have 'process_new_stake' function for elections")
+            .clone();
+        log::trace!("Use process new stake function '{}' with id={:08X}",
+            ELECTOR_PROCESS_NEW_STAKE_FUNC_NAME, process_new_stake_fn.get_function_id());
+
+        let time_now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let header: HashMap<_, _> = vec![("time".to_owned(), TokenValue::Time(time_now_ms))]
+            .into_iter()
+            .collect();        
+
         let query_id = now() as u64;
-        // validator-elect-signed.fif
+
+        let parameters = [
+            Token::new("query_id", Self::convert_to_uint(&query_id.to_be_bytes(), 4)),
+            Token::new("validator_pubkey", Self::convert_to_uint(&pub_key, 32)),
+            Token::new("stake_at", Self::convert_to_uint(&elect_time.to_be_bytes(), 4)),
+            Token::new("max_factor", Self::convert_to_uint(&max_factor.to_be_bytes(), 4)),
+            Token::new("adnl_addr", Self::convert_to_uint(&adnl, 32)),
+            Token::new("bls_key1", Self::convert_to_uint(&bls_pub_key[0..31], 32)), //256 bits
+            Token::new("bls_key2", Self::convert_to_uint(&bls_pub_key[32..], 16)), //128 bits
+            Token::new("signature", TokenValue::Bytes(signature.to_vec())),
+        ];
+
+        const INTERNAL_CALL: bool = false; //external message
+
+        let body = process_new_stake_fn
+            .encode_input(&header, &parameters, INTERNAL_CALL, None, None)
+            .and_then(|builder| builder.into_cell())?;
+
+/*        // validator-elect-signed.fif
         let mut data = 0x4E73744Bu32.to_be_bytes().to_vec();
         data.extend_from_slice(&query_id.to_be_bytes());
         data.extend_from_slice(&pub_key);
@@ -705,7 +756,8 @@ impl ControlClient {
 //        let len = signature.len() * 8;
  //       body.append_reference(BuilderData::with_raw(signature, len)?);
         body.append_reference(data2);
-        let body = body.into_cell()?;
+
+        /////////---------*/
         log::trace!("message body {}", body);
         let data = ton_types::serialize_toc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
