@@ -726,7 +726,7 @@ impl ControlClient {
             Token::new("stake_at", Self::convert_to_uint(&elect_time.to_be_bytes(), 4)),
             Token::new("max_factor", Self::convert_to_uint(&max_factor.to_be_bytes(), 4)),
             Token::new("adnl_addr", Self::convert_to_uint(&adnl, 32)),
-            Token::new("bls_key1", Self::convert_to_uint(&bls_pub_key[0..31], 32)), //256 bits
+            Token::new("bls_key1", Self::convert_to_uint(&bls_pub_key[0..32], 32)), //256 bits
             Token::new("bls_key2", Self::convert_to_uint(&bls_pub_key[32..], 16)), //128 bits
             Token::new("signature", TokenValue::Bytes(signature.to_vec())),
         ];
