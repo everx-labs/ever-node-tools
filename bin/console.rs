@@ -720,7 +720,7 @@ impl ControlClient {
         let query_id = now() as u64;
 
         let parameters = [
-            Token::new("query_id", Self::convert_to_uint(&query_id.to_be_bytes(), 4)),
+            Token::new("query_id", Self::convert_to_uint(&query_id.to_be_bytes(), 8)),
             Token::new("validator_pubkey", Self::convert_to_uint(&pub_key, 32)),
             Token::new("stake_at", Self::convert_to_uint(&elect_time.to_be_bytes(), 4)),
             Token::new("max_factor", Self::convert_to_uint(&max_factor.to_be_bytes(), 4)),
