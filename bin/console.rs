@@ -623,7 +623,7 @@ impl ControlClient {
     }
 
     fn convert_to_uint(value: &[u8], bytes_count: usize) -> TokenValue {
-        error!("check: bytes_count={}, value.len={}", bytes_count, value.len());
+        log::trace!("check: bytes_count={}, value.len={}", bytes_count, value.len());
         assert!(value.len() == bytes_count);
         TokenValue::Uint(Uint {
             number: BigUint::from_bytes_be(value),
