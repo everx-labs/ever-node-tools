@@ -731,7 +731,7 @@ impl ControlClient {
             Token::new("signature", TokenValue::Bytes(signature.to_vec())),
         ];
 
-        const INTERNAL_CALL: bool = false; //external message
+        const INTERNAL_CALL: bool = true; //internal message
 
         let body = process_new_stake_fn
             .encode_input(&header, &parameters, INTERNAL_CALL, None, None)
