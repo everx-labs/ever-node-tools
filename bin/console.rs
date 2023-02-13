@@ -38,7 +38,7 @@ use ton_api::tag_from_bare_object;
 use ton_block::{
     AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
 };
-use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256};
+use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256, SliceData};
 
 include!("../common/src/test.rs");
 
@@ -245,7 +245,7 @@ impl SendReceive for NewKeypair {
         mut _params: impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
         let answer = downcast::<ton_api::ton::engine::validator::KeyHash>(answer)?;
-        let key_hash = answer.key_hash().into_vec();
+        let key_hash = answer.key_hash().as_slice().to_vec();
         Ok((format!("received public key hash: {} {}", 
             hex::encode(&key_hash), base64::encode(&key_hash)), key_hash
         ))
@@ -265,7 +265,7 @@ impl SendReceive for ExportPub {
     ) -> Result<(String, Vec<u8>)> {
         let answer = downcast::<ton_api::ton::PublicKey>(answer)?;
         let pub_key = match answer.key() {
-            Some(key) => key.into_vec(),
+            Some(key) => key.clone().into_vec(),
             None => {
                 answer.bls_key()
                     .ok_or_else(|| error!("Public key not found in answer!"))?
@@ -623,7 +623,6 @@ impl ControlClient {
     }
 
     fn convert_to_uint(value: &[u8], bytes_count: usize) -> TokenValue {
-        log::trace!("check: bytes_count={}, value.len={}", bytes_count, value.len());
         assert!(value.len() == bytes_count);
         TokenValue::Uint(Uint {
             number: BigUint::from_bytes_be(value),
@@ -754,8 +753,7 @@ impl ControlClient {
 
         let len = data.len() * 8;
         let mut body = BuilderData::with_raw(data, len)?;
-//        let len = signature.len() * 8;
- //       body.append_reference(BuilderData::with_raw(signature, len)?);
+        let len = signature.len() * 8;
         body.append_reference(data2);
 
         /////////---------*/
@@ -783,10 +781,11 @@ impl ControlClient {
         let zerostate = ton_block_json::parse_state(&zerostate)
             .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
 
+        let key = SliceData::load_builder(index.write_to_new_cell()?)?;
         let config_param_cell = zerostate.read_custom()
             .map_err(|err| error!("Can't read McStateExtra from zerostate: {}", err))?
             .ok_or_else(|| error!("Can't find McStateExtra in zerostate"))?
-            .config().config_params.get(index.serialize()?.into())
+            .config().config_params.get(key)
             .map_err(|err| error!("Can't read config param {} from zerostate: {}", index, err))?
             .ok_or_else(|| error!("Can't find config param {} in zerostate", index))?
             .reference_opt(0)
@@ -950,7 +949,7 @@ mod test {
 
             let mut ss = ShardStateUnsplit::with_ident(ShardIdent::full(0));
             let account = generate_test_account_by_init_code_hash(false);
-            let account_id = UInt256::from(account.get_id().unwrap().get_next_hash().unwrap());
+            let account_id = account.get_id().unwrap().get_next_hash().unwrap();
             ss.insert_account(
                 &account_id, 
                 &ShardAccount::with_params(&account, UInt256::default(), 0).unwrap()
@@ -1582,14 +1581,14 @@ mod test {
         let ethalon = "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=";
         assert_eq!(
             parse_test!(parse_int256, ethalon).unwrap(), 
-            UInt256::from_str(ethalon).unwrap()
+            ethalon.parse::<UInt256>().unwrap()
         );
         assert_eq!(
             parse_test!(
                 parse_int256, 
                 "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F"
             ).unwrap(), 
-            UInt256::from_str(ethalon).unwrap()
+            ethalon.parse::<UInt256>().unwrap()
         );
         parse_test!(parse_int256, "11").expect_err("must generate error");
         parse_int256(Option::<&str>::None, "test").expect_err("must generate error");
