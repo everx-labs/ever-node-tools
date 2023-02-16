@@ -351,17 +351,19 @@ console -c "getblockchainconfig"
 
 # zerostate
 
-This tool generates config and zerostate for network launch from json zerostate file.
+This tool generates config and zerostate as `.boc` files from the given 'zerostate.json' file and optionally the contracts `.tvc` files.
 
 ## How to use
 
 ```bash
-zerostate -i zerostate.json
+zerostate -i zerostate.json <--config config.tvc> <--elector elector.tvc>
 ```
 
 Where
 
-`zerostate.json` – is the zerostate file.
+`zerostate.json` – is the source zerostate file.
+`config.tvc` – is the TVC file of config contract which code will be in new zerostate.
+`elector.tvc` – is the TVC file of elector contract which code and data will be in new zerostate.
 
 # keygen
 
