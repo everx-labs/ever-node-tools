@@ -34,7 +34,7 @@ cargo build --release
 
 ## Usage
 
-### console
+# console
 
 This tool serves the purpose of generating election requests for the Rust Node. The tool is compatible with [TONOS-CLI](https://github.com/tonlabs/tonos-cli) and allows to perform all actions necessary to obtain a signed election request.
 
@@ -294,7 +294,7 @@ Example:
 console -c "sendmessage message.boc"
 ```
 
-### getaccountstate
+#### getaccountstate
 
 **`getaccountstate`** - save account to the file (in bag of cells format).
 
@@ -312,7 +312,7 @@ Example:
 console -c "getaccountstate 0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F account.boc"
 ```
 
-### getaccount
+#### getaccount
 
 **`getaccount`** - load and save (optional) account information in json-format.
 
@@ -340,7 +340,7 @@ Example:
 console -c "getaccount 0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
 ```
 
-### getconfig
+#### getconfig
 
 **`getconfig`** - get current config param from masterchain state.
 
@@ -356,7 +356,7 @@ Example:
 console -c "getconfig 15"
 ```
 
-### getblockchainconfig
+#### getblockchainconfig
 
 **`getblockchainconfig`** - get current config from masterchain state.
 
@@ -368,7 +368,7 @@ Example:
 console -c "getblockchainconfig"
 ```
 
-### zerostate
+# zerostate
 
 This tool generates config and zerostate for network launch from json zerostate file.
 
@@ -382,7 +382,7 @@ Where
 
 `zerostate.json` – is the zerostate file.
 
-### keygen
+# keygen
 
 This tool generates an ed25519 key and prints it out in different formats.
 
@@ -394,7 +394,7 @@ keygen
 
 Command has no parameters.
 
-### gendht
+# gendht
 
 This tool generates the node DHT record, for example, for the purposes of adding it to the global blockchain config.
 
@@ -416,7 +416,7 @@ Example:
 gendht 51.210.114.123:30303 ABwHd2EavvLJk789BjSF3OJBfX6c26Uzx1tMbnLnRTM=
 ```
 
-### dhtscan
+# dhtscan
 
 This tool scans DHT for node records.
 
@@ -436,7 +436,7 @@ Where
 
 `path-to-global-config` – path to global config file.
 
-### print
+# print
 
 This tool prints a state or block from the database.
 
