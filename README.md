@@ -34,11 +34,9 @@ cargo build --release
 
 ## Usage
 
-### Console
+### console
 
 This tool serves the purpose of generating election requests for the Rust Node. The tool is compatible with [TONOS-CLI](https://github.com/tonlabs/tonos-cli) and allows to perform all actions necessary to obtain a signed election request.
-
-### How to use
 
 ### Command syntax
 
@@ -89,7 +87,6 @@ Where
 `max_factor` – [max_factor](https://docs.ton.dev/86757ecb2/p/456977-validator-elections) stake parameter (maximum ratio allowed between your stake and the minimal
  validator stake in the elected validator group), should be ≥ 1
  
-
 ### Commands
 
 #### election-bid
@@ -371,12 +368,11 @@ Example:
 console -c "getblockchainconfig"
 ```
 
-
-# zerostate
+### zerostate
 
 This tool generates config and zerostate for network launch from json zerostate file.
 
-## How to use
+### How to use
 
 ```bash
 zerostate -i zerostate.json
@@ -386,11 +382,11 @@ Where
 
 `zerostate.json` – is the zerostate file.
 
-# keygen
+### keygen
 
 This tool generates an ed25519 key and prints it out in different formats.
 
-## How to use
+### How to use
 
 ```bash
 keygen
@@ -398,11 +394,11 @@ keygen
 
 Command has no parameters.
 
-# gendht
+### gendht
 
 This tool generates the node DHT record, for example, for the purposes of adding it to the global blockchain config.
 
-## How to use
+### How to use
 
 ```bash
 gendht ip:port pvt_key
@@ -420,11 +416,11 @@ Example:
 gendht 51.210.114.123:30303 ABwHd2EavvLJk789BjSF3OJBfX6c26Uzx1tMbnLnRTM=
 ```
 
-# dhtscan
+### dhtscan
 
 This tool scans DHT for node records.
 
-## How to use
+### How to use
 
 ```bash
 dhtscan [--jsonl] [--overlay] [--workchain0] path-to-global-config
@@ -440,11 +436,11 @@ Where
 
 `path-to-global-config` – path to global config file.
 
-# print
+### print
 
 This tool prints a state or block from the database.
 
-## How to use
+### How to use
 
 ```bash
 print -d path [-s state_id] [-b block_id]
@@ -458,3 +454,14 @@ Where
 
 `state_id` – id of the state to be printed.
 
+## Contributing
+
+Contribution to the project is expected to be done via pull requests submission.
+
+## License
+
+See the [LICENSE](LICENSE) file for details.
+
+## Tags
+
+`blockchain` `everscale` `rust` `venom-blockchain` `venom-developer-program` `venom-tools` 
