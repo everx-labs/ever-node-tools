@@ -1,21 +1,44 @@
-# ton-node-tools
+# ever-node-tools
 
-This repository contains a collection of tools used to manage the TON Labs Rust Node.
+Tools for Everscale/Venom blockchains
 
-## Prerequisites
+## Table of Contents
 
-- [Rust](https://www.rust-lang.org/tools/install) latest
+- [About](#about)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Contributing](#contributing)
+- [License](#license)
+
+## About
+
+This repository contains a collection of tools used to manage the Everscale/Venom node.
+
+## Getting Started
+
+### Prerequisites
+
+- Rust complier v1.65+.
 - OpenSSL 
     ```bash
     sudo apt-get install libssl-dev (openssl-devel on Fedora)
     sudo apt-get install pkg-config
     ```
+### Installing
 
-# Console
+```
+git clone --recurse-submodules https://github.com/tonlabs/ever-rldp.git
+cd ever-rldp
+cargo build --release
+```
+
+## Usage
+
+### Console
 
 This tool serves the purpose of generating election requests for the Rust Node. The tool is compatible with [TONOS-CLI](https://github.com/tonlabs/tonos-cli) and allows to perform all actions necessary to obtain a signed election request.
 
-## How to use
+### How to use
 
 ### Command syntax
 
