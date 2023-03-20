@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
     } else if let Some(db_dir) = args.value_of("PATH") {
         let db_config = InternalDbConfig { 
             db_directory: db_dir.to_string(), 
-            cells_gc_interval_sec: 0
+            ..Default::default()
         };
         let db = InternalDb::with_update(
             db_config,
