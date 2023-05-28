@@ -51,6 +51,7 @@ path = 'bin/zerostate.rs'
 [dependencies]
 base64 = '0.13'
 clap = '2.33.3'
+enum-as-inner = '=0.5.1'
 failure = '0.1.6'
 hex = '0.4.2'
 log = '0.4.11'
