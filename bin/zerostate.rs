@@ -17,7 +17,7 @@ use ton_block::{
     ConfigParamEnum, ConfigParam12,
     Deserializable, Serializable, ShardIdent, ShardStateUnsplit, StateInit,
 };
-use ton_types::{serialize_toc, Result, UInt256, HashmapType};
+use ton_types::{write_boc, Result, UInt256, HashmapType};
 
 fn import_zerostate(json: &str) -> Result<ShardStateUnsplit> {
     let map = serde_json::from_str::<Map<String, Value>>(&json)?;
@@ -38,7 +38,7 @@ fn import_zerostate(json: &str) -> Result<ShardStateUnsplit> {
 
         let cell = state.serialize()?;
         descr.zerostate_root_hash = cell.repr_hash();
-        let bytes = ton_types::serialize_toc(&cell)?;
+        let bytes = ton_types::write_boc(&cell)?;
         descr.zerostate_file_hash = UInt256::calc_file_hash(&bytes);
         workchains.set(&workchain_id, &descr)?;
         let name = format!("{:x}.boc", descr.zerostate_file_hash);
@@ -65,7 +65,7 @@ fn import_zerostate(json: &str) -> Result<ShardStateUnsplit> {
 
 fn write_zero_state(mc_zero_state: ShardStateUnsplit) -> Result<()> {
     let cell = mc_zero_state.serialize().unwrap();
-    let bytes = serialize_toc(&cell).unwrap();
+    let bytes = write_boc(&cell).unwrap();
     let file_hash = UInt256::calc_file_hash(&bytes);
     let name = format!("{:x}.boc", file_hash);
     std::fs::write(name, &bytes).unwrap();

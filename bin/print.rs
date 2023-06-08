@@ -48,13 +48,13 @@ async fn print_db_block(db: &InternalDb, block_id: BlockIdExt, brief: bool) -> R
         || error!("Cannot load block {}", block_id)
     )?;
     let block = db.load_block_data(&handle).await?;
-    print_block(block.block(), brief)
+    print_block(block.block()?, brief)
 }
 
 async fn print_db_state(db: &InternalDb, block_id: BlockIdExt, brief: bool) -> Result<()> {
     println!("loading state: {}", block_id);
     let state = db.load_shard_state_dynamic(&block_id)?;
-    print_state(state.state(), brief)
+    print_state(state.state()?, brief)
 }
 
 async fn print_shards(db: &InternalDb, block_id: BlockIdExt) -> Result<()> {
