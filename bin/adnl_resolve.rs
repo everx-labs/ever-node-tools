@@ -13,7 +13,7 @@
 
 use adnl::node::{AdnlNode, AdnlNodeConfig};
 use ever_crypto::KeyId;
-use dht::DhtNode;
+use dht::{DhtNode, DhtSearchPolicy};
 use std::{convert::TryInto, env, fs::File, io::BufReader};
 use ton_node::config::TonNodeGlobalConfigJson;
 use ton_types::{error, fail, Result};
@@ -50,10 +50,16 @@ async fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
     }
 
     let keyid = KeyId::from_data((&base64::decode(adnlid)?[..32]).try_into()?);
+    let mut context = None;
     let mut index = 0;
     println!("Searching DHT for {}...", keyid);
     loop {
-        if let Ok(Some((ip, key))) = DhtNode::find_address(&dht, &keyid).await {
+        if let Ok(Some((ip, key))) = DhtNode::find_address_with_context(
+            &dht, 
+            &keyid,
+            &mut context,
+            DhtSearchPolicy::FastSearch(5)
+        ).await {
             println!("Found {} / {}", ip, key.id());
             return Ok(())
         }
