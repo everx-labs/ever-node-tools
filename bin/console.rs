@@ -14,9 +14,6 @@
 use adnl::{
     common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
 };
-use ever_crypto::Ed25519KeyOption;
-use clap::{Arg, App};
-use serde_json::{Map, Value};
 use std::{convert::TryInto, env, str::FromStr, time::Duration};
 use ton_api::{
     serialize_boxed,
@@ -31,7 +28,9 @@ use ton_api::tag_from_bare_object;
 use ton_block::{
     AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
 };
-use ton_types::{error, fail, Result, BuilderData, write_boc, UInt256, SliceData};
+use ton_types::{
+    error, fail, Result, BuilderData, Ed25519KeyOption, SliceData, UInt256, write_boc
+};
 
 include!("../common/src/test.rs");
 
@@ -155,7 +154,7 @@ fn now() -> ton::int {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
 }
 
-fn stats_to_json<'a>(stats: impl IntoIterator<Item = &'a OneStat>) -> Value {
+fn stats_to_json<'a>(stats: impl IntoIterator<Item = &'a OneStat>) -> serde_json::Value {
     let map = stats.into_iter().map(|stat| {
         let value = if stat.value.is_empty() {
             "null".into()
@@ -167,7 +166,7 @@ fn stats_to_json<'a>(stats: impl IntoIterator<Item = &'a OneStat>) -> Value {
             stat.value.trim_matches('\"').into()
         };
         (stat.key.clone(), value)
-    }).collect::<Map<_, _>>();
+    }).collect::<serde_json::Map<_, _>>();
     map.into()
 }
 
@@ -218,8 +217,8 @@ impl SendReceive for GetSessionStats {
         let stats = downcast::<ton_api::ton::engine::validator::SessionStats>(answer)?;
         let description = stats.stats().iter().map(|session_stat| {
             (session_stat.session_id.clone(), stats_to_json(session_stat.stats.iter()))
-        }).collect::<Map<_, _>>();
-        let description = format!("{:#}", Value::from(description));
+        }).collect::<serde_json::Map<_, _>>();
+        let description = format!("{:#}", serde_json::Value::from(description));
         Ok((description, data))
     }
 }
@@ -683,8 +682,9 @@ impl ControlClient {
 
         let zerostate = std::fs::read_to_string(&zerostate)
             .map_err(|err| error!("Can't read zerostate json file {} : {}", zerostate, err))?;
-        let zerostate = serde_json::from_str::<Map<String, Value>>(&zerostate)
-            .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
+        let zerostate = 
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&zerostate)
+                .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
         let zerostate = ton_block_json::parse_state(&zerostate)
             .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
 
@@ -718,9 +718,9 @@ struct AdnlConsoleConfigJson {
 #[tokio::main]
 async fn main() {
     // init_test_log();
-    let args = App::new(env!("CARGO_PKG_NAME"))
+    let args = clap::App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
-        .arg(Arg::with_name("CONFIG")
+        .arg(clap::Arg::with_name("CONFIG")
             .short("C")
             .long("config")
             .help("config for console")
@@ -728,23 +728,23 @@ async fn main() {
             .default_value("console.json")
             .takes_value(true)
             .number_of_values(1))
-        .arg(Arg::with_name("COMMANDS")
+        .arg(clap::Arg::with_name("COMMANDS")
             .allow_hyphen_values(true)
             .short("c")
             .long("cmd")
             .help("schedule command")
             .multiple(true)
             .takes_value(true))
-        .arg(Arg::with_name("TIMEOUT")
+        .arg(clap::Arg::with_name("TIMEOUT")
             .short("t")
             .long("timeout")
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
-        .arg(Arg::with_name("VERBOSE")
+        .arg(clap::Arg::with_name("VERBOSE")
             .long("verbose")
             .help("verbose regim"))
-        .arg(Arg::with_name("JSON")
+        .arg(clap::Arg::with_name("JSON")
             .short("j")
             .long("json")
             .help("output in json format")

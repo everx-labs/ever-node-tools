@@ -11,8 +11,7 @@
 * limitations under the License.
 */
 
-use ever_crypto::Ed25519KeyOption;
-use ton_types::Result;
+use ton_types::{Ed25519KeyOption, Result};
      
 fn gen() -> Result<()> {
     let (private, public) = Ed25519KeyOption::generate_with_json()?;

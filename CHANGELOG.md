@@ -1,5 +1,9 @@
 All notable changes to this project will be documented in this file.
 
+## Version 0.1.310
+
+- Remove dependency on ever-crypto crate
+
 ## Version 0.1.307
 
 - Support different formats of validator stat

@@ -13,11 +13,10 @@
 
 use adnl::node::{AdnlNode, AdnlNodeConfig};
 use dht::DhtNode;
-use ever_crypto::Ed25519KeyOption;
 use overlay::OverlayNode;
 use std::{collections::HashMap, env, fs::File, io::BufReader, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
-use ton_types::{error, fail, Result};
+use ton_types::{error, fail, KeyOption, Result};
 
 include!("../common/src/test.rs");
 
@@ -87,7 +86,7 @@ fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) 
             if skip {
                 continue;
             }
-            let key = Ed25519KeyOption::from_public_key_tl(&node.id)?;
+            let key: Arc<dyn KeyOption> = (&node.id).try_into()?;
             match rt.block_on(dht.ping(key.id())) {
                 Ok(true) => (),
                 _ => continue
@@ -155,7 +154,7 @@ fn scan_overlay(
         let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
         let count = overlays.len();
         for (ip, node) in res {
-            let key = Ed25519KeyOption::from_public_key_tl(&node.id)?;
+            let key: Arc<dyn KeyOption> = (&node.id).try_into()?;
             overlays.insert(key.id().clone(), (ip, node));
         }
         if search_overlay {

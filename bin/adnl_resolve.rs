@@ -12,11 +12,10 @@
 */
 
 use adnl::node::{AdnlNode, AdnlNodeConfig};
-use ever_crypto::KeyId;
 use dht::{DhtNode, DhtSearchPolicy};
 use std::{convert::TryInto, env, fs::File, io::BufReader};
 use ton_node::config::TonNodeGlobalConfigJson;
-use ton_types::{error, fail, Result};
+use ton_types::{error, fail, KeyId, Result};
 
 include!("../common/src/test.rs");
 
