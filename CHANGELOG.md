@@ -1,5 +1,21 @@
 All notable changes to this project will be documented in this file.
 
+## Version 0.1.314
+
+- Support hops check for old-fashioned broadcasts
+
+## Version 0.1.313
+
+- Supported ton_block library without fast-finality feature
+
+## Version 0.1.312
+
+- Support advanced node shutdown
+
+## Version 0.1.311
+
+- Fix build for keyid utility 
+
 ## Version 0.1.310
 
 - Remove dependency on ever-crypto crate
