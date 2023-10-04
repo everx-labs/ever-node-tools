@@ -2,7 +2,7 @@
 build = 'common/build/build.rs'
 edition = '2021'
 name = 'ton-node-tools'
-version = '0.1.310'
+version = '0.1.314'
 
 [[bin]]
 name = 'adnl_resolve'
@@ -58,15 +58,16 @@ log4rs = '1.2'
 serde = '1.0.105'
 serde_json = '1.0.56'
 shell-words = '1.0.0'
-adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ever-adnl.git', tag = '0.8.19' }
-dht = { git = 'https://github.com/tonlabs/ever-dht.git', tag = '0.6.30' }
-overlay = { git = 'https://github.com/tonlabs/ever-overlay.git', tag = '0.6.210' }
+tokio-util = '0.7'
+adnl = { features = [ 'client' ], git = 'https://github.com/tonlabs/ever-adnl.git', tag = '0.9.1' }
+dht = { git = 'https://github.com/tonlabs/ever-dht.git', tag = '0.6.61' }
+overlay = { git = 'https://github.com/tonlabs/ever-overlay.git', tag = '0.6.240' }
 tokio = { features = [ 'rt-multi-thread' ], version = '1.5.0' }
-ton_api = { git = 'https://github.com/tonlabs/ever-tl.git', package = 'ton_api', tag = '0.3.24' }
-ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.88' }
-ton_block_json = { git = 'https://github.com/tonlabs/ever-block-json.git', tag = '0.7.168' }
-ton_node = { git = 'https://github.com/tonlabs/ever-node.git', tag = '0.55.35' }
-ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.18' }
+ton_api = { git = 'https://github.com/tonlabs/ever-tl.git', package = 'ton_api', tag = '0.3.41' }
+ton_block = { git = 'https://github.com/tonlabs/ever-block.git', tag = '1.9.104' }
+ton_block_json = { git = 'https://github.com/tonlabs/ever-block-json.git', tag = '0.7.187' }
+ton_node = { git = 'https://github.com/tonlabs/ever-node.git', tag = 'pre_tmp-rc' }
+ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.28' }
 
 [features]
 default = [ 'telemetry' ]
