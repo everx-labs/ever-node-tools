@@ -73,4 +73,3 @@ ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.31' 
 default = [ 'telemetry' ]
 export_key = [ 'ton_types/export_key' ]
 telemetry = [ 'adnl/telemetry', 'dht/telemetry', 'overlay/telemetry' ]
-
