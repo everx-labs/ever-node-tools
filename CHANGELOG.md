@@ -1,5 +1,10 @@
 All notable changes to this project will be documented in this file.
 
+## Version 0.1.317
+
+- Make keyid tool usable without extra features
+- Added common submodule
+  
 ## Version 0.1.315
 
 - Supported pinned states in TestEngine
