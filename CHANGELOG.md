@@ -1,5 +1,9 @@
 All notable changes to this project will be documented in this file.
 
+## Version 0.1.318
+
+- Added ability to print all accounts short info
+
 ## Version 0.1.317
 
 - Make keyid tool usable without extra features
