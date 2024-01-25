@@ -8,41 +8,33 @@ version = '0.1.318'
 name = 'adnl_resolve'
 path = 'bin/adnl_resolve.rs'
 
-
 [[bin]]
 name = 'adnl_ping'
 path = 'bin/adnl_ping.rs'
-
 
 [[bin]]
 name = 'dhtscan'
 path = 'bin/dhtscan.rs'
 
-
 [[bin]]
 name = 'gendht'
 path = 'bin/gendht.rs'
-
 
 [[bin]]
 name = 'console'
 path = 'bin/console.rs'
 
-
 [[bin]]
 name = 'keygen'
 path = 'bin/keygen.rs'
-
 
 [[bin]]
 name = 'keyid'
 path = 'bin/keyid.rs'
 
-
 [[bin]]
 name = 'print'
 path = 'bin/print.rs'
-
 
 [[bin]]
 name = 'zerostate'
@@ -73,4 +65,3 @@ ton_types = { git = 'https://github.com/tonlabs/ever-types.git', tag = '2.0.31' 
 default = [ 'telemetry' ]
 export_key = [ 'ton_types/export_key' ]
 telemetry = [ 'adnl/telemetry', 'dht/telemetry', 'overlay/telemetry' ]
-
