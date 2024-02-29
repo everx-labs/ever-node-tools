@@ -1,3 +1,7 @@
+# WARNING! This repository is obsolete
+
+Tools for Everscale/Venom blockchains were merged into Everscale/Venom node repository https://github.com/tonlabs/ever-node.git
+
 # ever-node-tools
 
 Tools for Everscale/Venom blockchains
