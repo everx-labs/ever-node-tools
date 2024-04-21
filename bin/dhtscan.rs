@@ -1,9 +1,22 @@
-use adnl::{common::KeyOption, node::{AdnlNode, AdnlNodeConfig}};
+/*
+* Copyright (C) 2019-2021 TON Labs. All Rights Reserved.
+*
+* Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
+* this file except in compliance with the License.
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific TON DEV software governing permissions and
+* limitations under the License.
+*/
+
+use adnl::node::{AdnlNode, AdnlNodeConfig};
 use dht::DhtNode;
 use overlay::OverlayNode;
 use std::{collections::HashMap, env, fs::File, io::BufReader, ops::Deref, sync::Arc};
 use ton_node::config::TonNodeGlobalConfigJson;
-use ton_types::{error, fail, Result};
+use ton_types::{error, fail, KeyOption, Result};
 
 include!("../common/src/test.rs");
 
@@ -22,9 +35,8 @@ fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) 
     let dht_nodes = config.get_dht_nodes_configs()?;
 
     let mut rt = tokio::runtime::Runtime::new()?;
-    let (_, config) = AdnlNodeConfig::with_ip_address_and_key_type(
+    let (_, config) = AdnlNodeConfig::with_ip_address_and_private_key_tags(
         IP, 
-        KeyOption::KEY_ED25519, 
         vec![KEY_TAG]
     )?;
     let adnl = rt.block_on(AdnlNode::with_config(config))?;
@@ -74,12 +86,14 @@ fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) 
             if skip {
                 continue;
             }
-            let key = KeyOption::from_tl_public_key(&node.id)?;
+            let key: Arc<dyn KeyOption> = (&node.id).try_into()?;
             match rt.block_on(dht.ping(key.id())) {
                 Ok(true) => (),
                 _ => continue
             }
-            let adr = AdnlNode::parse_address_list(&node.addr_list)?.into_udp();
+            let adr = AdnlNode::parse_address_list(&node.addr_list)?.ok_or_else(
+                || error!("Cannot parse address list {:?}", node.addr_list)
+            )?.into_udp();
             let json = serde_json::json!(
                 {
                     "@type": "dht.node",
@@ -140,7 +154,7 @@ fn scan_overlay(
         let res = rt.block_on(DhtNode::find_overlay_nodes(&dht, &overlay_id, &mut iter))?;
         let count = overlays.len();
         for (ip, node) in res {
-            let key = KeyOption::from_tl_public_key(&node.id)?;
+            let key: Arc<dyn KeyOption> = (&node.id).try_into()?;
             overlays.insert(key.id().clone(), (ip, node));
         }
         if search_overlay {

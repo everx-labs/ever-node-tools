@@ -1,27 +1,46 @@
-use adnl::common::{KeyOption, serialize};
-use adnl::client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson};
-use clap::{Arg, App};
-use ton_api::ton::{
-    self, TLObject, 
-    engine::validator::ControlQueryError,
-    rpc::engine::validator::ControlQuery,
+/*
+* Copyright (C) 2019-2023 EverX. All Rights Reserved.
+*
+* Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
+* this file except in compliance with the License.
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific TON DEV software governing permissions and
+* limitations under the License.
+*/
+
+use adnl::{
+    common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
 };
-use ton_block::{Serializable, BlockIdExt};
-use ton_types::{error, fail, Result, BuilderData, serialize_toc};
-use std::{
-    convert::TryInto,
-    env,
-    str::FromStr,
-    time::Duration,
+use std::{convert::TryInto, env, str::FromStr, time::Duration};
+use ton_api::{
+    serialize_boxed,
+    ton::{
+        self, TLObject, 
+        accountaddress::AccountAddress, engine::validator::{ControlQueryError, onestat::OneStat}, 
+        raw::ShardAccountState, rpc::engine::validator::ControlQuery
+    }
 };
-use serde_json::{Map, Value};
+#[cfg(feature = "telemetry")]
+use ton_api::tag_from_bare_object;
+use ton_block::{
+    AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
+};
+use ton_types::{
+    error, fail, Result, BuilderData, Ed25519KeyOption, SliceData, UInt256, write_boc
+};
 
 include!("../common/src/test.rs");
 
 trait SendReceive {
     fn send<Q: ToString>(params: impl Iterator<Item = Q>) -> Result<TLObject>;
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        answer.downcast::<ton_api::ton::engine::validator::Success>()?;
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        downcast::<ton_api::ton::engine::validator::Success>(answer)?;
         Ok(("success".to_string(), vec![]))
     }
 }
@@ -52,28 +71,38 @@ macro_rules! commands {
                 _ => fail!("command {} not supported", name)
             }
         }
-        fn command_receive(name: &str, answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
+        fn command_receive<Q: ToString>(
+            name: &str,
+            answer: TLObject,
+            params: impl Iterator<Item = Q>
+        ) -> Result<(String, Vec<u8>)> {
             match name {
-                $($name => $command::receive(answer), )*
-                _ => Err(answer)
+                $($name => $command::receive(answer, params), )*
+                _ => fail!("an error occured while receiving a response (command: {})", name)
             }
         }
     };
 }
 
 commands! {
-    NewKeypair, "newkey", "newkey\tgenerates new key pair on server"
-    ExportPub, "exportpub", "exportpub <keyhash>\texports public key by key hash"
-    Sign, "sign", "sign <keyhash> <data>\tsigns bytestring with privkey"
+    AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
+    AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
     AddValidatorPermKey, "addpermkey", "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key"
     AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
-    AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
-    AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
+    ExportPub, "exportpub", "exportpub <keyhash>\texports public key by key hash"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
-    GetStats, "getstats", "getstats\tget status validator"
+    GetAccount, "getaccount", "getaccount <account id> <Option<file name>>\tget account info"
+    GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
+    GetBlockchainConfig, "getblockchainconfig", "getblockchainconfig\tget current config from masterchain state"
+    GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
     GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
+    GetSelectedStats, "getstatsnew", "getstatsnew\tget status full node or validator in new format"
+    GetStats, "getstats", "getstats\tget status full node or validator"
+    NewKeypair, "newkey", "newkey\tgenerates new key pair on server"
     SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
+    SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
+    Sign, "sign", "sign <keyhash> <data>\tsigns bytestring with privkey"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -81,6 +110,13 @@ fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl
         .ok_or_else(|| error!("insufficient parameters"))
         .and_then(|value| parse_value(value.to_string().trim_matches('\"')))
         .map_err(|err| error!("you must give {}: {}", name, err))
+}
+
+fn downcast<T: ton_api::AnyBoxedSerialize>(data: TLObject) -> Result<T> {
+    match data.downcast::<T>() {
+        Ok(result) => Ok(result),
+        Err(obj) => fail!("Wrong downcast {:?} to {}", obj, std::any::type_name::<T>())
+    }
 }
 
 fn parse_data<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::bytes> {
@@ -91,7 +127,7 @@ fn parse_data<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::byte
     )
 }
 
-fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int256> {
+fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<UInt256> {
     parse_any(
         param_opt,
         &format!("{} in hex or base64 format", name),
@@ -101,7 +137,7 @@ fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::in
                 64 => hex::decode(value)?,
                 length => fail!("wrong hash: {} with length: {}", value, length)
             };
-            Ok(ton::int256(value.as_slice().try_into()?))
+            Ok(UInt256::with_array(value.as_slice().try_into()?))
         }
     )
 }
@@ -110,39 +146,61 @@ fn parse_int<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int> 
     parse_any(param_opt, name, |value| Ok(ton::int::from_str(value)?))
 }
 
-fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton_api::ton::ton_node::blockidext::BlockIdExt> {
-    parse_any(param_opt, name, |value| {
-        let block_id = BlockIdExt::from_str(value)?;
-        Ok(ton_node::block::convert_block_id_ext_blk2api(&block_id))
-    })
+fn parse_blockid<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<BlockIdExt> {
+    parse_any(param_opt, name, |value| BlockIdExt::from_str(value))
 }
 
 fn now() -> ton::int {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
 }
 
+fn stats_to_json<'a>(stats: impl IntoIterator<Item = &'a OneStat>) -> serde_json::Value {
+    let map = stats.into_iter().map(|stat| {
+        let value = if stat.value.is_empty() {
+            "null".into()
+        } else if let Ok(value) = stat.value.parse::<i64>() {
+            value.into()
+        } else if let Ok(value) = serde_json::from_str(&stat.value) {
+            value
+        } else {
+            stat.value.trim_matches('\"').into()
+        };
+        (stat.key.clone(), value)
+    }).collect::<serde_json::Map<_, _>>();
+    map.into()
+}
+
 impl SendReceive for GetStats {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GetStats))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let data = serialize(&answer).unwrap();
-        let stats = answer.downcast::<ton_api::ton::engine::validator::Stats>()?;
-        let mut description = String::from("{");
-        for stat in stats.stats().iter() {
-            description.push_str("\n\t\"");
-            description.push_str(&stat.key);
-            description.push_str("\":\t");
-            let value = match serde_json::Number::from_str(&stat.value) {
-                Ok(num) => serde_json::value::Value::Number(num),
-                Err(_) => serde_json::value::Value::String(stat.value.clone())
-            };
-            let value_str = serde_json::to_string_pretty(&value).unwrap();
-            description.push_str(&value_str);
-            description.push_str(",");
-        }
-        description.pop();
-        description.push_str("\n}");
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let data = serialize_boxed(&answer)?;
+        let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
+        let description = stats_to_json(stats.stats().iter());
+        let description = format!("{:#}", description);
+        Ok((description, data))
+    }
+}
+
+impl SendReceive for GetSelectedStats {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let req = ton::rpc::engine::validator::GetSelectedStats {
+            filter: "*".to_string()
+        };
+        Ok(TLObject::new(req))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let data = serialize_boxed(&answer)?;
+        let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
+        let description = stats_to_json(stats.stats().iter());
+        let description = format!("{:#}", description);
         Ok((description, data))
     }
 }
@@ -151,26 +209,16 @@ impl SendReceive for GetSessionStats {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GetSessionStats))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let data = serialize(&answer).unwrap();
-        let stats = answer.downcast::<ton_api::ton::engine::validator::SessionStats>()?;
-        let mut description = String::from("{");
-        for session_stat in stats.stats().iter() {
-            description.push_str("\n\t\"");
-            description.push_str(&session_stat.session_id);
-            description.push_str("\":\t{");
-            for stat in session_stat.stats.iter() {
-                description.push_str("\n\t\t\"");
-                description.push_str(&stat.key);
-                description.push_str("\":\t");
-                description.push_str(&stat.value);
-                description.push_str(",");
-            }
-            description.pop();
-            description.push_str("\n\t\"},");
-        }
-        description.pop();
-        description.push_str("\n}");
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let data = serialize_boxed(&answer)?;
+        let stats = downcast::<ton_api::ton::engine::validator::SessionStats>(answer)?;
+        let description = stats.stats().iter().map(|session_stat| {
+            (session_stat.session_id.clone(), stats_to_json(session_stat.stats.iter()))
+        }).collect::<serde_json::Map<_, _>>();
+        let description = format!("{:#}", serde_json::Value::from(description));
         Ok((description, data))
     }
 }
@@ -179,9 +227,15 @@ impl SendReceive for NewKeypair {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let key_hash = answer.downcast::<ton_api::ton::engine::validator::KeyHash>()?.key_hash().0.to_vec();
-        Ok((format!("received public key hash: {} {}", hex::encode(&key_hash), base64::encode(&key_hash)), key_hash))
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let answer = downcast::<ton_api::ton::engine::validator::KeyHash>(answer)?;
+        let key_hash = answer.key_hash().as_slice().to_vec();
+        Ok((format!("received public key hash: {} {}", 
+            hex::encode(&key_hash), base64::encode(&key_hash)), key_hash
+        ))
     }
 }
 
@@ -192,8 +246,16 @@ impl SendReceive for ExportPub {
             key_hash
         }))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let pub_key = answer.downcast::<ton_api::ton::PublicKey>()?.key().unwrap().0.to_vec();
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let answer = downcast::<ton_api::ton::PublicKey>(answer)?;
+        let pub_key = answer
+            .key()
+            .ok_or_else(|| error!("Public key not found in answer!"))?
+            .as_slice()
+            .to_vec();
         Ok((format!("imported key: {} {}", hex::encode(&pub_key), base64::encode(&pub_key)), pub_key))
     }
 }
@@ -207,8 +269,12 @@ impl SendReceive for Sign {
             data
         }))
     }
-    fn receive(answer: TLObject) -> std::result::Result<(String, Vec<u8>), TLObject> {
-        let signature = answer.downcast::<ton_api::ton::engine::validator::Signature>()?.signature().0.clone();
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let answer = downcast::<ton_api::ton::engine::validator::Signature>(answer)?;
+        let signature = answer.signature().0.clone();
         Ok((format!("got signature: {} {}", hex::encode(&signature), base64::encode(&signature)), signature))
     }
 }
@@ -296,6 +362,153 @@ impl SendReceive for SendMessage {
     }
 }
 
+impl SendReceive for GetBlockchainConfig {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        Ok(TLObject::new(ton::rpc::lite_server::GetConfigAll {
+            mode: 0,
+            id: BlockIdExt::default()
+        }))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
+
+        // We use config_proof because we use standard struct ConfigInfo from ton-tl and
+        // ConfigInfo doesn`t contain more suitable fields
+        let config_param = hex::encode(config_info.config_proof().0.clone());
+        Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
+    }
+}
+
+impl SendReceive for GetConfig {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let param_number = parse_int(params.next(), "paramnumber")?;
+        let mut params: ton::vector<ton::Bare, ton::int> = ton::vector::default();
+        params.0.push(param_number);
+        Ok(TLObject::new(ton::rpc::lite_server::GetConfigParams {
+            mode: 0,
+            id: BlockIdExt::default(),
+            param_list: params
+        }))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
+        let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
+        Ok((config_param.to_string(), config_info.config_proof().0.clone()))
+    }
+}
+
+impl SendReceive for GetAccount {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let account = AccountAddress { 
+            account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
+        };
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address: account}))
+    }
+
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let shard_account_state = downcast::<ShardAccountState>(answer)?;
+        let mut account_info = String::from("{");
+        account_info.push_str("\n\"");
+        account_info.push_str("acc_type\":\t\"");
+
+        match shard_account_state {
+            ShardAccountState::Raw_ShardAccountNone => {
+                account_info.push_str(&"Nonexist");
+            },
+            ShardAccountState::Raw_ShardAccountState(account_state) => {
+                let shard_account = ShardAccount::construct_from_bytes(&account_state.shard_account)?;
+                let account = shard_account.read_account()?;
+
+                let account_type = match account.status() {
+                    AccountStatus::AccStateUninit => "Uninit",
+                    AccountStatus::AccStateFrozen => "Frozen",
+                    AccountStatus::AccStateActive => "Active",
+                    AccountStatus::AccStateNonexist => "Nonexist"
+                };
+                let balance = account.balance().map_or(0, |val| val.grams.as_u128());
+                account_info.push_str(&account_type);
+                account_info.push_str("\",\n\"");
+                account_info.push_str("balance\":\t");
+                account_info.push_str(&balance.to_string());
+                account_info.push_str(",\n\"");
+                account_info.push_str("last_paid\":\t");
+                account_info.push_str(&account.last_paid().to_string());
+                account_info.push_str(",\n\"");
+                account_info.push_str("last_trans_lt\":\t\"");
+                account_info.push_str(&format!("{:#x}", shard_account.last_trans_lt()));
+                account_info.push_str("\",\n\"");
+                account_info.push_str("data(boc)\":\t\"");
+                account_info.push_str(
+                    &hex::encode(&write_boc(&shard_account.account_cell())?)
+                );
+            }
+        }
+        account_info.push_str("\"\n}");
+
+        params.next();
+        let account_data = account_info.as_bytes().to_vec();
+        if let Some(boc_name) = params.next() {
+            std::fs::write(boc_name.to_string(), &account_data)
+                .map_err(|err| error!("Can`t create file: {}", err))?;
+        }
+
+        Ok((account_info, account_data))
+    }
+}
+
+impl SendReceive for GetAccountState {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let account_address = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let account_address = AccountAddress { account_address };
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address}))
+    }
+
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let shard_account_state = downcast::<ShardAccountState>(answer)?;
+
+        params.next();
+        let boc_name = params
+            .next()
+            .ok_or_else(|| error!("bad params (boc name not found)!"))?
+            .to_string();
+
+        let shard_account_state = shard_account_state
+            .shard_account()
+            .ok_or_else(|| error!("account not found!"))?;
+        
+        let shard_account = ShardAccount::construct_from_bytes(&shard_account_state)?;
+        let account_state = write_boc(&shard_account.account_cell())?;
+        std::fs::write(boc_name, &account_state)
+            .map_err(|err| error!("Can`t create file: {}", err))?;
+
+        Ok((format!("{} {}",
+            hex::encode(&account_state),
+            base64::encode(&account_state)),
+            account_state)
+        )
+    }
+}
+
+impl SendReceive for SetStatesGcInterval {
+    fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let interval_ms_str = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let interval_ms = interval_ms_str.parse().map_err(|e| error!("can't parse <milliseconds>: {}", e))?;
+        Ok(TLObject::new(ton::rpc::engine::validator::SetStatesGcInterval { interval_ms }))
+    }
+}
+
 /// ControlClient
 struct ControlClient{
     config: AdnlConsoleConfigJson,
@@ -323,7 +536,7 @@ impl ControlClient {
     async fn command(&mut self, cmd: &str) -> Result<(String, Vec<u8>)> {
         let result = shell_words::split(cmd)?;
         let mut params = result.iter();
-        match &params.next().expect("takes_value set for COMMANDS")[..] {
+        match params.next().expect("takes_value set for COMMANDS").as_str() {
             "recover_stake" => self.process_recover_stake(params).await,
             "ebid" |
             "election-bid" |
@@ -334,15 +547,26 @@ impl ControlClient {
         }
     }
 
-    async fn process_command<Q: ToString>(&mut self, name: &str, params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
-        let query = command_send(name, params)?;
+    async fn process_command<Q: ToString>(
+        &mut self,
+        name: &str,
+        params: impl Iterator<Item = Q> + Clone
+    ) -> Result<(String, Vec<u8>)> {
+        let query = command_send(name, params.clone())?;
         let boxed = ControlQuery {
-            data: ton::bytes(serialize(&query)?)
+            data: ton::bytes(serialize_boxed(&query)?)
         };
-        let answer = self.adnl.query(&TLObject::new(boxed)).await
+        #[cfg(feature = "telemetry")]
+        let tag = tag_from_bare_object(&boxed);
+        let boxed = TaggedTlObject {
+            object: TLObject::new(boxed),
+            #[cfg(feature = "telemetry")]
+            tag
+        };
+        let answer = self.adnl.query(&boxed).await
             .map_err(|err| error!("Error receiving answer: {}", err))?;
         match answer.downcast::<ControlQueryError>() {
-            Err(answer) => match command_receive(name, answer) {
+            Err(answer) => match command_receive(name, answer, params) {
                 Err(answer) => fail!("Wrong response to {:?}: {:?}", query, answer),
                 Ok(result) => Ok(result)
             }
@@ -357,9 +581,9 @@ impl ControlClient {
         data.extend_from_slice(&query_id.to_be_bytes());
         let len = data.len() * 8;
         let body = BuilderData::with_raw(data, len)?;
-        let body = body.into();
+        let body = body.into_cell()?;
         log::trace!("message body {}", body);
-        let data = ton_types::serialize_toc(&body)?;
+        let data = ton_types::write_boc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("recover-query.boc".to_string());
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
@@ -369,48 +593,48 @@ impl ControlClient {
     // @output validator-query.boc
     async fn process_election_bid<Q: ToString>(&mut self, mut params: impl Iterator<Item = Q>) -> Result<(String, Vec<u8>)> {
         let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
-            if !value.starts_with("-1:") {
-                fail!("use masterchain wallet")
+            match value.strip_prefix("-1:") {
+                Some(stripped) => Ok(hex::decode(stripped)?),
+                None => fail!("use masterchain wallet")
             }
-            Ok(hex::decode(&value[3..])?)
         })?;
         let elect_time = parse_int(params.next(), "elect_time")?;
         if elect_time <= 0 {
             fail!("<elect-utime> must be a positive integer")
         }
-        let elect_time_str = &format!("{}", elect_time)[..];
+        let elect_time_str = elect_time.to_string();
         let expire_time = parse_int(params.next(), "expire_time")?;
         if expire_time <= elect_time {
             fail!("<expire-utime> must be a grater than elect_time")
         }
-        let expire_time_str = &format!("{}", expire_time)[..];
+        let expire_time_str = expire_time.to_string();
         let max_factor = self.config.max_factor.ok_or_else(|| error!("you must give max_factor as real"))?;
         if max_factor < 1.0 || max_factor > 100.0 {
             fail!("<max-factor> must be a real number 1..100")
         }
         let max_factor = (max_factor * 65536.0) as u32;
 
-        let (s, perm) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
+        let (s, perm) = self.process_command("newkey", Vec::<String>::new().iter()).await?;
         log::trace!("{}", s);
-        let perm_str = &hex::encode_upper(&perm)[..];
+        let perm_str = hex::encode_upper(&perm);
 
-        let (s, pub_key) = self.process_command("exportpub", vec![perm_str].drain(..)).await?;
-        log::trace!("{}", s);
-
-        let (s, _) = self.process_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].drain(..)).await?;
+        let (s, pub_key) = self.process_command("exportpub", [&perm_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addtempkey", vec![perm_str, perm_str, expire_time_str].drain(..)).await?;
+        let (s, _) = self.process_command("addpermkey", [&perm_str, &elect_time_str, &expire_time_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, adnl) = self.process_command("newkey", Vec::<String>::new().drain(..)).await?;
-        log::trace!("{}", s);
-        let adnl_str = &hex::encode_upper(&adnl)[..];
-
-        let (s, _) = self.process_command("addadnl", vec![adnl_str, "0"].drain(..)).await?;
+        let (s, _) = self.process_command("addtempkey", [&perm_str, &perm_str, &expire_time_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].drain(..)).await?;
+        let (s, adnl) = self.process_command("newkey", Vec::<String>::new().iter()).await?;
+        log::trace!("{}", s);
+        let adnl_str = hex::encode_upper(&adnl);
+
+        let (s, _) = self.process_command("addadnl", [&adnl_str, "0"].iter()).await?;
+        log::trace!("{}", s);
+
+        let (s, _) = self.process_command("addvalidatoraddr", [&perm_str, &adnl_str, &elect_time_str].iter()).await?;
         log::trace!("{}", s);
 
         // validator-elect-req.fif
@@ -419,11 +643,11 @@ impl ControlClient {
         data.extend_from_slice(&max_factor.to_be_bytes());
         data.extend_from_slice(&wallet_id);
         data.extend_from_slice(&adnl);
-        log::trace!("data to sign {}", hex::encode_upper(&data));
-        let data_str = &hex::encode_upper(&data)[..];
-        let (s, signature) = self.process_command("sign", vec![perm_str, data_str].drain(..)).await?;
+        let data_str = hex::encode_upper(&data);
+        log::trace!("data to sign {}", data_str);
+        let (s, signature) = self.process_command("sign", [&perm_str, &data_str].iter()).await?;
         log::trace!("{}", s);
-        KeyOption::from_type_and_public_key(KeyOption::KEY_ED25519, &pub_key[..].try_into()?)
+        Ed25519KeyOption::from_public_key(&pub_key[..].try_into()?)
             .verify(&data, &signature)?;
 
         let query_id = now() as u64;
@@ -437,10 +661,10 @@ impl ControlClient {
         let len = data.len() * 8;
         let mut body = BuilderData::with_raw(data, len)?;
         let len = signature.len() * 8;
-        body.append_reference(BuilderData::with_raw(signature, len)?);
-        let body = body.into();
+        body.checked_append_reference(BuilderData::with_raw(signature, len)?.into_cell()?)?;
+        let body = body.into_cell()?;
         log::trace!("message body {}", body);
-        let data = ton_types::serialize_toc(&body)?;
+        let data = ton_types::write_boc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
@@ -458,21 +682,23 @@ impl ControlClient {
 
         let zerostate = std::fs::read_to_string(&zerostate)
             .map_err(|err| error!("Can't read zerostate json file {} : {}", zerostate, err))?;
-        let zerostate = serde_json::from_str::<Map<String, Value>>(&zerostate)
-            .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
+        let zerostate = 
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&zerostate)
+                .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
         let zerostate = ton_block_json::parse_state(&zerostate)
             .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
 
+        let key = SliceData::load_builder(index.write_to_new_cell()?)?;
         let config_param_cell = zerostate.read_custom()
             .map_err(|err| error!("Can't read McStateExtra from zerostate: {}", err))?
             .ok_or_else(|| error!("Can't find McStateExtra in zerostate"))?
-            .config().config_params.get(index.serialize()?.into())
+            .config().config_params.get(key)
             .map_err(|err| error!("Can't read config param {} from zerostate: {}", index, err))?
             .ok_or_else(|| error!("Can't find config param {} in zerostate", index))?
             .reference_opt(0)
             .ok_or_else(|| error!("Can't parse config param {}: wrong format - no reference", index))?;
 
-        let data = serialize_toc(&config_param_cell)
+        let data = write_boc(&config_param_cell)
             .map_err(|err| error!("Can't serialize config param {}: {}", index, err))?;
 
         std::fs::write(&path, &data)
@@ -491,18 +717,10 @@ struct AdnlConsoleConfigJson {
 
 #[tokio::main]
 async fn main() {
-    println!(
-        "tonlabs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
-        env!("CARGO_PKG_VERSION"),
-        env!("BUILD_GIT_COMMIT"),
-        env!("BUILD_TIME") ,
-        env!("BUILD_GIT_DATE"),
-        env!("BUILD_GIT_BRANCH")
-    );
     // init_test_log();
-    let args = App::new(env!("CARGO_PKG_NAME"))
+    let args = clap::App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
-        .arg(Arg::with_name("CONFIG")
+        .arg(clap::Arg::with_name("CONFIG")
             .short("C")
             .long("config")
             .help("config for console")
@@ -510,20 +728,51 @@ async fn main() {
             .default_value("console.json")
             .takes_value(true)
             .number_of_values(1))
-        .arg(Arg::with_name("COMMANDS")
+        .arg(clap::Arg::with_name("COMMANDS")
+            .allow_hyphen_values(true)
             .short("c")
             .long("cmd")
             .help("schedule command")
             .multiple(true)
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(Arg::with_name("TIMEOUT")
+            .takes_value(true))
+        .arg(clap::Arg::with_name("TIMEOUT")
             .short("t")
             .long("timeout")
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
+        .arg(clap::Arg::with_name("VERBOSE")
+            .long("verbose")
+            .help("verbose regim"))
+        .arg(clap::Arg::with_name("JSON")
+            .short("j")
+            .long("json")
+            .help("output in json format")
+            .takes_value(false))
         .get_matches();
+
+    if !args.is_present("JSON") {
+        println!(
+            "tonlabs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
+            env!("CARGO_PKG_VERSION"),
+            env!("BUILD_GIT_COMMIT"),
+            env!("BUILD_TIME") ,
+            env!("BUILD_GIT_DATE"),
+            env!("BUILD_GIT_BRANCH")
+        );
+    }
+
+    if args.is_present("VERBOSE") {
+        let encoder_boxed = Box::new(log4rs::encode::pattern::PatternEncoder::new("{m}{n}"));
+        let console = log4rs::append::console::ConsoleAppender::builder()
+            .encoder(encoder_boxed)
+            .build();
+        let config = log4rs::config::Config::builder()
+            .appender(log4rs::config::Appender::builder().build("console", Box::new(console)))
+            .build(log4rs::config::Root::builder().appender("console").build(log::LevelFilter::Trace))
+            .unwrap();
+        log4rs::init_config(config).unwrap();
+    }
 
     let config = args.value_of("CONFIG").expect("required set for config");
     let config = std::fs::read_to_string(config).expect("Can't read config file");
@@ -561,380 +810,3 @@ async fn main() {
     client.shutdown().await.ok();
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use std::sync::Arc;
-    use ton_node::{
-        config::{NodeConfigHandler, TonNodeConfig},
-        network::control::ControlServer,
-    };
-    use ton_types::Result;
-    use ton_block::{BlockLimits, ParamLimits, Deserializable};
-
-    pub struct Engine {
-        _config_handler: Arc<NodeConfigHandler>,
-        control: ControlServer
-    }
-
-    impl Engine {
-        pub async fn with_config(node_config_path: &str) -> Result<Self> {
-            let node_config = TonNodeConfig::from_file("target", node_config_path, None, "", None)?;
-            let control_server_config = node_config.control_server()?;
-            let config_handler = Arc::new(NodeConfigHandler::new(node_config)?);
-            let config = control_server_config.expect("must have control server setting");
-            let control = ControlServer::with_config(config, None, config_handler.clone(), config_handler.clone()).await?;
-
-            Ok(Self {
-                _config_handler: config_handler,
-                control
-            })
-        }
-        pub async fn shutdown(self) {
-            self.control.shutdown().await
-        }
-    }
-    const ADNL_SERVER_CONFIG: &str = r#"{
-        "control_server": {
-            "address": "127.0.0.1:4924",
-            "server_key": {
-                "type_id": 1209251014,
-                "pvt_key": "cJIxGZviebMQWL726DRejqVzRTSXPv/1sO/ab6XOZXk="
-            },
-            "clients": {
-                "list": [
-                    {
-                        "type_id": 1209251014,
-                        "pub_key": "RYokIiD5AFkzfTBgC6NhtAGFKm0+gwhN4suTzaW0Sjw="
-                    }
-                ]
-            }
-        }
-    }"#;
-
-    const ADNL_CLIENT_CONFIG: &str = r#"{
-        "config": {
-            "server_address": "127.0.0.1:4924",
-            "server_key": {
-                "type_id": 1209251014,
-                "pub_key": "cujCRU4rQbSw48yHVHxQtRPhUlbo+BuZggFTQSu04Y8="
-            },
-            "client_key": {
-                "type_id": 1209251014,
-                "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
-            }
-        },
-        "wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
-        "max_factor": 2.7
-    }"#;
-
-    const SAMPLE_ZERO_STATE: &str = r#"{
-        "id": "-1:8000000000000000",
-        "workchain_id": -1,
-        "boc": "",
-        "global_id": 42,
-        "shard": "8000000000000000",
-        "seq_no": 0,
-        "vert_seq_no": 0,
-        "gen_utime": 1600000000,
-        "gen_lt": "0",
-        "min_ref_mc_seqno": 4294967295,
-        "before_split": false,
-        "overload_history": "0",
-        "underload_history": "0",
-        "total_balance": "4993357197000000000",
-        "total_validator_fees": "0",
-        "master": {
-            "config_addr": "5555555555555555555555555555555555555555555555555555555555555555",
-            "config": {
-            "p0": "5555555555555555555555555555555555555555555555555555555555555555",
-            "p1": "3333333333333333333333333333333333333333333333333333333333333333",
-            "p2": "0000000000000000000000000000000000000000000000000000000000000000",
-            "p7": [],
-            "p8": {
-                "version": 5,
-                "capabilities": "46"
-            },
-            "p9": [ 0 ],
-            "p10": [ 0 ],
-            "p11": {
-                "normal_params": {
-                    "min_tot_rounds": 2,
-                    "max_tot_rounds": 3,
-                    "min_wins": 2,
-                    "max_losses": 2,
-                    "min_store_sec": 1000000,
-                    "max_store_sec": 10000000,
-                    "bit_price": 1,
-                    "cell_price": 500
-                },
-                "critical_params": {
-                    "min_tot_rounds": 4,
-                    "max_tot_rounds": 7,
-                    "min_wins": 4,
-                    "max_losses": 2,
-                    "min_store_sec": 5000000,
-                    "max_store_sec": 20000000,
-                    "bit_price": 2,
-                    "cell_price": 1000
-                }
-            },
-            "p12": [],
-            "p13": {
-                "boc": "te6ccgEBAQEADQAAFRpRdIdugAEBIB9I"
-            },
-            "p14": {
-                "masterchain_block_fee": "1700000000",
-                "basechain_block_fee": "1000000000"
-            },
-            "p15": {
-                "validators_elected_for": 65536,
-                "elections_start_before": 32768,
-                "elections_end_before": 8192,
-                "stake_held_for": 32768
-            },
-            "p16": {
-                "max_validators": 1000,
-                "max_main_validators": 100,
-                "min_validators": 5
-            },
-            "p17": {
-                "min_stake": "10000000000000",
-                "max_stake": "10000000000000000",
-                "min_total_stake": "100000000000000",
-                "max_stake_factor": 196608
-            },
-            "p18": [
-                {
-                "utime_since": 0,
-                "bit_price_ps": "1",
-                "cell_price_ps": "500",
-                "mc_bit_price_ps": "1000",
-                "mc_cell_price_ps": "500000"
-                }
-            ],
-            "p20": {
-                "flat_gas_limit": "1000",
-                "flat_gas_price": "10000000",
-                "gas_price": "655360000",
-                "gas_limit": "1000000",
-                "special_gas_limit": "100000000",
-                "gas_credit": "10000",
-                "block_gas_limit": "10000000",
-                "freeze_due_limit": "100000000",
-                "delete_due_limit": "1000000000"
-            },
-            "p21": {
-                "flat_gas_limit": "1000",
-                "flat_gas_price": "1000000",
-                "gas_price": "65536000",
-                "gas_limit": "1000000",
-                "special_gas_limit": "1000000",
-                "gas_credit": "10000",
-                "block_gas_limit": "10000000",
-                "freeze_due_limit": "100000000",
-                "delete_due_limit": "1000000000"
-            },
-            "p22": {
-                "bytes": {
-                    "underload": 131072,
-                    "soft_limit": 524288,
-                    "hard_limit": 1048576
-                },
-                "gas": {
-                    "underload": 900000,
-                    "soft_limit": 1200000,
-                    "hard_limit": 2000000
-                },
-                "lt_delta": {
-                    "underload": 1000,
-                    "soft_limit": 5000,
-                    "hard_limit": 10000
-                }
-            },
-            "p23": {
-                "bytes": {
-                    "underload": 131072,
-                    "soft_limit": 524288,
-                    "hard_limit": 1048576
-                },
-                "gas": {
-                    "underload": 900000,
-                    "soft_limit": 1200000,
-                    "hard_limit": 2000000
-                },
-                "lt_delta": {
-                    "underload": 1000,
-                    "soft_limit": 5000,
-                    "hard_limit": 10000
-                }
-            },
-            "p24": {
-                "lump_price": "10000000",
-                "bit_price": "655360000",
-                "cell_price": "65536000000",
-                "ihr_price_factor": 98304,
-                "first_frac": 21845,
-                "next_frac": 21845
-            },
-            "p25": {
-                "lump_price": "1000000",
-                "bit_price": "65536000",
-                "cell_price": "6553600000",
-                "ihr_price_factor": 98304,
-                "first_frac": 21845,
-                "next_frac": 21845
-            },
-            "p28": {
-                "shuffle_mc_validators": true,
-                "mc_catchain_lifetime": 250,
-                "shard_catchain_lifetime": 250,
-                "shard_validators_lifetime": 1000,
-                "shard_validators_num": 7
-            },
-            "p29": {
-                "new_catchain_ids": true,
-                "round_candidates": 3,
-                "next_candidate_delay_ms": 2000,
-                "consensus_timeout_ms": 16000,
-                "fast_attempts": 3,
-                "attempt_duration": 8,
-                "catchain_max_deps": 4,
-                "max_block_bytes": 2097152,
-                "max_collated_bytes": 2097152
-            },
-            "p31": [
-                "0000000000000000000000000000000000000000000000000000000000000000"
-            ],
-            "p34": {
-                "utime_since": 1600000000,
-                "utime_until": 1610000000,
-                "total": 1,
-                "main": 1,
-                "total_weight": "17",
-                "list": [
-                    {
-                        "public_key": "2e7eb5a711ed946605a91e36037c4cb927181eff4bb277b175d891a588d03536",
-                        "weight": "17"
-                    }
-                ]
-            }
-            },
-            "validator_list_hash_short": 871956759,
-            "catchain_seqno": 0,
-            "nx_cc_updated": true,
-            "after_key_block": true,
-            "global_balance": "4993357197000000000"
-        },
-        "accounts": [],
-        "libraries": [],
-        "out_msg_queue_info": {
-            "out_queue": [],
-            "proc_info": [],
-            "ihr_pending": []
-        }
-    }"#;
-
-    async fn test_one_cmd(cmd: &str, check_result: impl FnOnce(Vec<u8>)) {
-        // init_test_log();
-        std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
-        let server = Engine::with_config("light_node.json").await.unwrap();
-        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
-        let mut client = ControlClient::connect(config).await.unwrap();
-        let (_, result) = client.command(cmd).await.unwrap();
-        check_result(result);
-        client.shutdown().await.ok();
-        server.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn test_new_key_one() {
-        let cmd = "newkey";
-        test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
-    }
-
-    #[tokio::test]
-    async fn test_validator_status() {
-        let cmd = "get_validator_status";
-        test_one_cmd(cmd, |result| assert_eq!(result, vec![0,0])).await;
-    }
-
-    #[tokio::test]
-    async fn test_election_bid() {
-        let now = now() + 86400;
-        let cmd = format!(r#"election-bid {} {} "target/validator-query.boc""#, now, now + 10001);
-        test_one_cmd(&cmd, |result| assert_eq!(result.len(), 164)).await;
-    }
-
-    #[tokio::test]
-    async fn test_recover_stake() {
-        let cmd = r#"recover_stake "target/recover-query.boc""#;
-        test_one_cmd(cmd, |result| assert_eq!(result.len(), 25)).await;
-    }
-
-    #[tokio::test]
-    async fn test_config_param() {
-        std::fs::write("target/zerostate.json", SAMPLE_ZERO_STATE).unwrap();
-        let cmd = r#"cparam 23 "target/zerostate.json" "target/config-param.boc""#;
-        test_one_cmd(cmd, |result| {
-            assert_eq!(result.len(), 53);
-            let limits = BlockLimits::construct_from_bytes(&result).unwrap();
-            assert_eq!(limits.bytes(), &ParamLimits::with_limits(131072, 524288, 1048576).unwrap());
-            assert_eq!(limits.gas(), &ParamLimits::with_limits(900000, 1200000, 2000000).unwrap());
-            assert_eq!(limits.lt_delta(), &ParamLimits::with_limits(1000, 5000, 10000).unwrap());
-        }).await;
-    }
-
-    #[tokio::test]
-    async fn test_new_key_with_export() {
-        // init_test_log();
-        std::fs::write("target/light_node.json", ADNL_SERVER_CONFIG).unwrap();
-        let server = Engine::with_config("light_node.json").await.unwrap();
-        let config = serde_json::from_str(&ADNL_CLIENT_CONFIG).unwrap();
-        let mut client = ControlClient::connect(config).await.unwrap();
-        let (_, result) = client.command("newkey").await.unwrap();
-        assert_eq!(result.len(), 32);
-
-        let cmd = format!("exportpub {}", base64::encode(&result));
-        let (_, result) = client.command(&cmd).await.unwrap();
-        assert_eq!(result.len(), 32);
-
-        client.shutdown().await.ok();
-        server.shutdown().await;
-    }
-
-    macro_rules! parse_test {
-        ($func:expr, $param:expr) => {
-            $func($param.split_whitespace().next(), "test")
-        };
-    }
-    #[test]
-    fn test_parse_int() {
-        assert_eq!(parse_test!(parse_int, "0").unwrap(), 0);
-        assert_eq!(parse_test!(parse_int, "-1").unwrap(), -1);
-        assert_eq!(parse_test!(parse_int, "1600000000").unwrap(), 1600000000);
-
-        parse_test!(parse_int, "qwe").expect_err("must generate error");
-        parse_int(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-
-    #[test]
-    fn test_parse_int256() {
-        let ethalon = ton::int256(base64::decode("GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap().as_slice().try_into().unwrap());
-        assert_eq!(parse_test!(parse_int256, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").unwrap(), ethalon);
-        assert_eq!(parse_test!(parse_int256, "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F").unwrap(), ethalon);
-
-        parse_test!(parse_int256, "11").expect_err("must generate error");
-        parse_int256(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-
-    #[test]
-    fn test_parse_data() {
-        let ethalon = ton::bytes(vec![10, 77]);
-        assert_eq!(parse_test!(parse_data, "0A4D").unwrap(), ethalon);
-
-        parse_test!(parse_data, "QQ").expect_err("must generate error");
-        parse_test!(parse_data, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=").expect_err("must generate error");
-        parse_data(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-}

@@ -1,21 +1,46 @@
-# ton-node-tools
+# WARNING! This repository is obsolete
 
-This repository contains a collection of tools used to manage the TON Labs Rust Node.
+Tools for Everscale/Venom blockchains were merged into Everscale/Venom node repository https://github.com/tonlabs/ever-node.git
 
-## Prerequisites
+# ever-node-tools
 
-- [Rust](https://www.rust-lang.org/tools/install) latest
+Tools for Everscale/Venom blockchains
+
+## Table of Contents
+
+- [About](#about)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Contributing](#contributing)
+- [License](#license)
+
+## About
+
+This repository contains a collection of tools used to manage the Everscale/Venom node.
+
+## Getting Started
+
+### Prerequisites
+
+- Rust complier v1.65+.
 - OpenSSL 
     ```bash
     sudo apt-get install libssl-dev (openssl-devel on Fedora)
     sudo apt-get install pkg-config
     ```
+### Installing
 
-# Console
+```
+git clone --recurse-submodules https://github.com/tonlabs/ever-rldp.git
+cd ever-rldp
+cargo build --release
+```
+
+## Usage
+
+# console
 
 This tool serves the purpose of generating election requests for the Rust Node. The tool is compatible with [TONOS-CLI](https://github.com/tonlabs/tonos-cli) and allows to perform all actions necessary to obtain a signed election request.
-
-## How to use
 
 ### Command syntax
 
@@ -66,7 +91,6 @@ Where
 `max_factor` – [max_factor](https://docs.ton.dev/86757ecb2/p/456977-validator-elections) stake parameter (maximum ratio allowed between your stake and the minimal
  validator stake in the elected validator group), should be ≥ 1
  
-
 ### Commands
 
 #### election-bid
@@ -222,12 +246,137 @@ Example:
 console -c "addadnl 4374376452376543 6783978551824553 1608288600"
 ```
 
+#### getstats
+
+**`getstats`** - get node status, validation status (if node is validator) and other information. 
+
+Command has no parameters.
+
+Returns node's information in JSON-format.
+
+base json-fields:
+
+• `sync_status` - synchronization status description;
+
+• `masterchainblocktime` - field with time of last masterchain block, downloaded by node;
+
+• `masterchainblocknumber` - field with number of last masterchain block, downloaded by node;
+
+• `timediff` - field with time difference between now and last loaded masterchain block's time;
+
+• `in_current_vset_p34` - true, if config param p34 contains this node's key;
+
+• `in_current_vset_p36` - true, if config param p36 contains this node's key;
+
+• `last applied masterchain block id` - field with information about last applied masterchain block's id;
+
+• `processed workchain` - field with information about the processed workchain;
+
+• `validation_stats` - field with information about validated workchains;
+
+• `tps_10` - transactions per second average over 10 seconds;
+
+• `tps_300` - transactions per second average over 300 seconds;
+
+Example: 
+
+```bash
+console -c "getstats"
+```
+
+#### sendmessage
+
+**`sendmessage`** - loads a serialized message from file and sends it to nodes as an external message.
+
+params:
+
+• `file_name` - serialized message file (in bag of cells format).
+
+Example:
+
+```bash
+console -c "sendmessage message.boc"
+```
+
+#### getaccountstate
+
+**`getaccountstate`** - save account to the file (in bag of cells format).
+
+params:
+
+• `account_address` - is the account address.
+
+• `file_name` - is the file's name to save account's boc.
+
+Returns account's boc.
+
+Example:
+
+```bash
+console -c "getaccountstate 0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F account.boc"
+```
+
+#### getaccount
+
+**`getaccount`** - load and save (optional) account information in json-format.
+
+params:
+
+• `account_address` - is the account address.
+
+• `file_name` - is the file's name to save account information in json-format. This param is optional.
+
+Returns json with account information. 
+
+Base json-fields:
+
+• `acc_type` - account type description;
+
+• `balance` - account balance;
+
+• `last_trans_lt` - logical time of the last account's transaction;
+
+• `data(boc)` - account`s boc.
+
+Example:
+
+```bash
+console -c "getaccount 0:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F"
+```
+
+#### getconfig
+
+**`getconfig`** - get current config param from masterchain state.
+
+params:
+
+• `param_number` - config parameter number.
+
+Returns boc with current config param.
+
+Example:
+
+```bash
+console -c "getconfig 15"
+```
+
+#### getblockchainconfig
+
+**`getblockchainconfig`** - get current config from masterchain state.
+
+Returns boc with current config.
+
+Example:
+
+```bash
+console -c "getblockchainconfig"
+```
 
 # zerostate
 
 This tool generates config and zerostate for network launch from json zerostate file.
 
-## How to use
+### How to use
 
 ```bash
 zerostate -i zerostate.json
@@ -241,7 +390,7 @@ Where
 
 This tool generates an ed25519 key and prints it out in different formats.
 
-## How to use
+### How to use
 
 ```bash
 keygen
@@ -253,7 +402,7 @@ Command has no parameters.
 
 This tool generates the node DHT record, for example, for the purposes of adding it to the global blockchain config.
 
-## How to use
+### How to use
 
 ```bash
 gendht ip:port pvt_key
@@ -275,7 +424,7 @@ gendht 51.210.114.123:30303 ABwHd2EavvLJk789BjSF3OJBfX6c26Uzx1tMbnLnRTM=
 
 This tool scans DHT for node records.
 
-## How to use
+### How to use
 
 ```bash
 dhtscan [--jsonl] [--overlay] [--workchain0] path-to-global-config
@@ -295,10 +444,10 @@ Where
 
 This tool prints a state or block from the database.
 
-## How to use
+### How to use
 
 ```bash
-print -d path [-s state_id] [-b block_id]
+print -d path [-s state_id] [-b block_id] [--accounts]
 ```
 
 Where
@@ -309,3 +458,16 @@ Where
 
 `state_id` – id of the state to be printed.
 
+`accounts` - short info of all accounts will be printed as json
+
+## Contributing
+
+Contribution to the project is expected to be done via pull requests submission.
+
+## License
+
+See the [LICENSE](LICENSE) file for details.
+
+## Tags
+
+`blockchain` `everscale` `rust` `venom-blockchain` `venom-developer-program` `venom-tools` 

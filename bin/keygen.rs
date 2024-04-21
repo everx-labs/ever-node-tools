@@ -1,16 +1,28 @@
-use adnl::common::KeyOption;
-use ton_types::Result;
+/*
+* Copyright (C) 2019-2021 TON Labs. All Rights Reserved.
+*
+* Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
+* this file except in compliance with the License.
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific TON DEV software governing permissions and
+* limitations under the License.
+*/
+
+use ton_types::{Ed25519KeyOption, Result};
      
 fn gen() -> Result<()> {
-    let (private, public) = KeyOption::with_type_id(KeyOption::KEY_ED25519)?;
+    let (private, public) = Ed25519KeyOption::generate_with_json()?;
     let private = serde_json::to_value(private)?;
     println!("{:#}", serde_json::json!({
         "private": {
-            "type_id": KeyOption::KEY_ED25519,
+            "type_id": Ed25519KeyOption::KEY_TYPE,
             "pvt_key": private["pvt_key"],
         },
         "public": {
-            "type_id": KeyOption::KEY_ED25519,
+            "type_id": Ed25519KeyOption::KEY_TYPE,
             "pub_key": base64::encode(public.pub_key()?),
         },
         "keyhash": base64::encode(public.id().data()),
