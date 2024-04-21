@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2019-2021 TON Labs. All Rights Reserved.
+* Copyright (C) 2019-2023 EverX. All Rights Reserved.
 *
 * Licensed under the SOFTWARE EVALUATION License (the "License"); you may not use
 * this file except in compliance with the License.
@@ -14,15 +14,12 @@
 use adnl::{
     common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
 };
-use ever_crypto::Ed25519KeyOption;
-use clap::{Arg, App};
-use serde_json::{Map, Value};
 use std::{convert::TryInto, env, str::FromStr, time::Duration};
 use ton_api::{
     serialize_boxed,
     ton::{
         self, TLObject, 
-        accountaddress::AccountAddress, engine::validator::ControlQueryError, 
+        accountaddress::AccountAddress, engine::validator::{ControlQueryError, onestat::OneStat}, 
         raw::ShardAccountState, rpc::engine::validator::ControlQuery
     }
 };
@@ -31,7 +28,9 @@ use ton_api::tag_from_bare_object;
 use ton_block::{
     AccountStatus, Deserializable, BlockIdExt, Serializable, ShardAccount
 };
-use ton_types::{error, fail, Result, BuilderData, serialize_toc, UInt256, SliceData};
+use ton_types::{
+    error, fail, Result, BuilderData, Ed25519KeyOption, SliceData, UInt256, write_boc
+};
 
 include!("../common/src/test.rs");
 
@@ -86,23 +85,24 @@ macro_rules! commands {
 }
 
 commands! {
-    NewKeypair, "newkey", "newkey\tgenerates new key pair on server"
-    ExportPub, "exportpub", "exportpub <keyhash>\texports public key by key hash"
-    Sign, "sign", "sign <keyhash> <data>\tsigns bytestring with privkey"
+    AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
+    AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
     AddValidatorPermKey, "addpermkey", "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key"
     AddValidatorTempKey, "addtempkey", "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
-    AddValidatorAdnlAddr, "addvalidatoraddr", "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
-    AddAdnlAddr, "addadnl", "addadnl <keyhash> <category>\tuse key as ADNL addr"
     Bundle, "bundle", "bundle <block_id>\tprepare bundle"
+    ExportPub, "exportpub", "exportpub <keyhash>\texports public key by key hash"
     FutureBundle, "future_bundle", "future_bundle <block_id>\tprepare future bundle"
-    GetStats, "getstats", "getstats\tget status full node or validator"
-    GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
-    SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
-    GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
     GetAccount, "getaccount", "getaccount <account id> <Option<file name>>\tget account info"
-    GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
+    GetAccountState, "getaccountstate", "getaccountstate <account id> <file name>\tsave accountstate to file"
     GetBlockchainConfig, "getblockchainconfig", "getblockchainconfig\tget current config from masterchain state"
+    GetConfig, "getconfig", "getconfig <param_number>\tget current config param from masterchain state"
+    GetSessionStats, "getconsensusstats", "getconsensusstats\tget consensus statistics for the node"
+    GetSelectedStats, "getstatsnew", "getstatsnew\tget status full node or validator in new format"
+    GetStats, "getstats", "getstats\tget status full node or validator"
+    NewKeypair, "newkey", "newkey\tgenerates new key pair on server"
+    SendMessage, "sendmessage", "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     SetStatesGcInterval, "setstatesgcinterval", "setstatesgcinterval <milliseconds>\tset interval in <milliseconds> between shard states GC runs"
+    Sign, "sign", "sign <keyhash> <data>\tsigns bytestring with privkey"
 }
 
 fn parse_any<A, Q: ToString>(param_opt: Option<Q>, name: &str, parse_value: impl FnOnce(&str) -> Result<A>) -> Result<A> {
@@ -154,6 +154,22 @@ fn now() -> ton::int {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as ton::int
 }
 
+fn stats_to_json<'a>(stats: impl IntoIterator<Item = &'a OneStat>) -> serde_json::Value {
+    let map = stats.into_iter().map(|stat| {
+        let value = if stat.value.is_empty() {
+            "null".into()
+        } else if let Ok(value) = stat.value.parse::<i64>() {
+            value.into()
+        } else if let Ok(value) = serde_json::from_str(&stat.value) {
+            value
+        } else {
+            stat.value.trim_matches('\"').into()
+        };
+        (stat.key.clone(), value)
+    }).collect::<serde_json::Map<_, _>>();
+    map.into()
+}
+
 impl SendReceive for GetStats {
     fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
         Ok(TLObject::new(ton::rpc::engine::validator::GetStats))
@@ -164,20 +180,27 @@ impl SendReceive for GetStats {
     ) -> Result<(String, Vec<u8>)> {
         let data = serialize_boxed(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
-        let mut description = String::from("{");
-        for stat in stats.stats().iter() {
-            description.push_str("\n\t\"");
-            description.push_str(&stat.key);
-            description.push_str("\":\t");
-            let value = match &stat.value.is_empty() {
-                true => "null",
-                false => &stat.value,
-            };
-            description.push_str(value);
-            description.push_str(",");
-        }
-        description.pop();
-        description.push_str("\n}");
+        let description = stats_to_json(stats.stats().iter());
+        let description = format!("{:#}", description);
+        Ok((description, data))
+    }
+}
+
+impl SendReceive for GetSelectedStats {
+    fn send<Q: ToString>(_params: impl Iterator<Item = Q>) -> Result<TLObject> {
+        let req = ton::rpc::engine::validator::GetSelectedStats {
+            filter: "*".to_string()
+        };
+        Ok(TLObject::new(req))
+    }
+    fn receive<Q: ToString>(
+        answer: TLObject, 
+        mut _params: impl Iterator<Item = Q>
+    ) -> Result<(String, Vec<u8>)> {
+        let data = serialize_boxed(&answer)?;
+        let stats = downcast::<ton_api::ton::engine::validator::Stats>(answer)?;
+        let description = stats_to_json(stats.stats().iter());
+        let description = format!("{:#}", description);
         Ok((description, data))
     }
 }
@@ -192,23 +215,10 @@ impl SendReceive for GetSessionStats {
     ) -> Result<(String, Vec<u8>)> {
         let data = serialize_boxed(&answer)?;
         let stats = downcast::<ton_api::ton::engine::validator::SessionStats>(answer)?;
-        let mut description = String::from("{");
-        for session_stat in stats.stats().iter() {
-            description.push_str("\n\t\"");
-            description.push_str(&session_stat.session_id);
-            description.push_str("\":\t{");
-            for stat in session_stat.stats.iter() {
-                description.push_str("\n\t\t\"");
-                description.push_str(&stat.key);
-                description.push_str("\":\t");
-                description.push_str(&stat.value);
-                description.push_str(",");
-            }
-            description.pop();
-            description.push_str("\n\t\"},");
-        }
-        description.pop();
-        description.push_str("\n}");
+        let description = stats.stats().iter().map(|session_stat| {
+            (session_stat.session_id.clone(), stats_to_json(session_stat.stats.iter()))
+        }).collect::<serde_json::Map<_, _>>();
+        let description = format!("{:#}", serde_json::Value::from(description));
         Ok((description, data))
     }
 }
@@ -389,7 +399,7 @@ impl SendReceive for GetConfig {
     ) -> Result<(String, Vec<u8>)> {
         let config_info = downcast::<ton_api::ton::lite_server::ConfigInfo>(answer)?;
         let config_param = String::from_utf8(config_info.config_proof().0.clone())?;
-        Ok((format!("{}", config_param), config_info.config_proof().0.clone()))
+        Ok((config_param.to_string(), config_info.config_proof().0.clone()))
     }
 }
 
@@ -438,7 +448,7 @@ impl SendReceive for GetAccount {
                 account_info.push_str("\",\n\"");
                 account_info.push_str("data(boc)\":\t\"");
                 account_info.push_str(
-                    &hex::encode(&serialize_toc(&shard_account.account_cell())?)
+                    &hex::encode(&write_boc(&shard_account.account_cell())?)
                 );
             }
         }
@@ -457,11 +467,9 @@ impl SendReceive for GetAccount {
 
 impl SendReceive for GetAccountState {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
-        let account = AccountAddress { 
-            account_address: params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string()
-        };
-
-        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address: account}))
+        let account_address = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
+        let account_address = AccountAddress { account_address };
+        Ok(TLObject::new(ton::rpc::raw::GetShardAccountState {account_address}))
     }
 
     fn receive<Q: ToString>(
@@ -481,8 +489,8 @@ impl SendReceive for GetAccountState {
             .ok_or_else(|| error!("account not found!"))?;
         
         let shard_account = ShardAccount::construct_from_bytes(&shard_account_state)?;
-        let account_state = serialize_toc(&shard_account.account_cell())?;
-        std::fs::write(boc_name, account_state.clone())
+        let account_state = write_boc(&shard_account.account_cell())?;
+        std::fs::write(boc_name, &account_state)
             .map_err(|err| error!("Can`t create file: {}", err))?;
 
         Ok((format!("{} {}",
@@ -496,10 +504,8 @@ impl SendReceive for GetAccountState {
 impl SendReceive for SetStatesGcInterval {
     fn send<Q: ToString>(mut params: impl Iterator<Item = Q>) -> Result<TLObject> {
         let interval_ms_str = params.next().ok_or_else(|| error!("insufficient parameters"))?.to_string();
-        let interval_ms = u32::from_str_radix(&interval_ms_str, 10).map_err(|e| error!("can't parse <milliseconds>: {}", e))?;
-        Ok(TLObject::new(ton::rpc::engine::validator::SetStatesGcInterval {
-            interval_ms: interval_ms as i32
-        }))
+        let interval_ms = interval_ms_str.parse().map_err(|e| error!("can't parse <milliseconds>: {}", e))?;
+        Ok(TLObject::new(ton::rpc::engine::validator::SetStatesGcInterval { interval_ms }))
     }
 }
 
@@ -530,7 +536,7 @@ impl ControlClient {
     async fn command(&mut self, cmd: &str) -> Result<(String, Vec<u8>)> {
         let result = shell_words::split(cmd)?;
         let mut params = result.iter();
-        match &params.next().expect("takes_value set for COMMANDS")[..] {
+        match params.next().expect("takes_value set for COMMANDS").as_str() {
             "recover_stake" => self.process_recover_stake(params).await,
             "ebid" |
             "election-bid" |
@@ -577,7 +583,7 @@ impl ControlClient {
         let body = BuilderData::with_raw(data, len)?;
         let body = body.into_cell()?;
         log::trace!("message body {}", body);
-        let data = ton_types::serialize_toc(&body)?;
+        let data = ton_types::write_boc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("recover-query.boc".to_string());
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
@@ -596,12 +602,12 @@ impl ControlClient {
         if elect_time <= 0 {
             fail!("<elect-utime> must be a positive integer")
         }
-        let elect_time_str = &format!("{}", elect_time)[..];
+        let elect_time_str = elect_time.to_string();
         let expire_time = parse_int(params.next(), "expire_time")?;
         if expire_time <= elect_time {
             fail!("<expire-utime> must be a grater than elect_time")
         }
-        let expire_time_str = &format!("{}", expire_time)[..];
+        let expire_time_str = expire_time.to_string();
         let max_factor = self.config.max_factor.ok_or_else(|| error!("you must give max_factor as real"))?;
         if max_factor < 1.0 || max_factor > 100.0 {
             fail!("<max-factor> must be a real number 1..100")
@@ -610,25 +616,25 @@ impl ControlClient {
 
         let (s, perm) = self.process_command("newkey", Vec::<String>::new().iter()).await?;
         log::trace!("{}", s);
-        let perm_str = &hex::encode_upper(&perm)[..];
+        let perm_str = hex::encode_upper(&perm);
 
-        let (s, pub_key) = self.process_command("exportpub", vec![perm_str].iter()).await?;
+        let (s, pub_key) = self.process_command("exportpub", [&perm_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addpermkey", vec![perm_str, elect_time_str, expire_time_str].iter()).await?;
+        let (s, _) = self.process_command("addpermkey", [&perm_str, &elect_time_str, &expire_time_str].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addtempkey", vec![perm_str, perm_str, expire_time_str].iter()).await?;
+        let (s, _) = self.process_command("addtempkey", [&perm_str, &perm_str, &expire_time_str].iter()).await?;
         log::trace!("{}", s);
 
         let (s, adnl) = self.process_command("newkey", Vec::<String>::new().iter()).await?;
         log::trace!("{}", s);
-        let adnl_str = &hex::encode_upper(&adnl)[..];
+        let adnl_str = hex::encode_upper(&adnl);
 
-        let (s, _) = self.process_command("addadnl", vec![adnl_str, "0"].iter()).await?;
+        let (s, _) = self.process_command("addadnl", [&adnl_str, "0"].iter()).await?;
         log::trace!("{}", s);
 
-        let (s, _) = self.process_command("addvalidatoraddr", vec![perm_str, adnl_str, elect_time_str].iter()).await?;
+        let (s, _) = self.process_command("addvalidatoraddr", [&perm_str, &adnl_str, &elect_time_str].iter()).await?;
         log::trace!("{}", s);
 
         // validator-elect-req.fif
@@ -637,9 +643,9 @@ impl ControlClient {
         data.extend_from_slice(&max_factor.to_be_bytes());
         data.extend_from_slice(&wallet_id);
         data.extend_from_slice(&adnl);
-        log::trace!("data to sign {}", hex::encode_upper(&data));
-        let data_str = &hex::encode_upper(&data)[..];
-        let (s, signature) = self.process_command("sign", vec![perm_str, data_str].iter()).await?;
+        let data_str = hex::encode_upper(&data);
+        log::trace!("data to sign {}", data_str);
+        let (s, signature) = self.process_command("sign", [&perm_str, &data_str].iter()).await?;
         log::trace!("{}", s);
         Ed25519KeyOption::from_public_key(&pub_key[..].try_into()?)
             .verify(&data, &signature)?;
@@ -658,7 +664,7 @@ impl ControlClient {
         body.checked_append_reference(BuilderData::with_raw(signature, len)?.into_cell()?)?;
         let body = body.into_cell()?;
         log::trace!("message body {}", body);
-        let data = ton_types::serialize_toc(&body)?;
+        let data = ton_types::write_boc(&body)?;
         let path = params.next().map(|path| path.to_string()).unwrap_or("validator-query.boc".to_string());
         std::fs::write(&path, &data)?;
         Ok((format!("Message body is {} saved to path {}", base64::encode(&data), path), data))
@@ -676,8 +682,9 @@ impl ControlClient {
 
         let zerostate = std::fs::read_to_string(&zerostate)
             .map_err(|err| error!("Can't read zerostate json file {} : {}", zerostate, err))?;
-        let zerostate = serde_json::from_str::<Map<String, Value>>(&zerostate)
-            .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
+        let zerostate = 
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&zerostate)
+                .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
         let zerostate = ton_block_json::parse_state(&zerostate)
             .map_err(|err| error!("Can't parse read zerostate json file: {}", err))?;
 
@@ -691,7 +698,7 @@ impl ControlClient {
             .reference_opt(0)
             .ok_or_else(|| error!("Can't parse config param {}: wrong format - no reference", index))?;
 
-        let data = serialize_toc(&config_param_cell)
+        let data = write_boc(&config_param_cell)
             .map_err(|err| error!("Can't serialize config param {}: {}", index, err))?;
 
         std::fs::write(&path, &data)
@@ -711,9 +718,9 @@ struct AdnlConsoleConfigJson {
 #[tokio::main]
 async fn main() {
     // init_test_log();
-    let args = App::new(env!("CARGO_PKG_NAME"))
+    let args = clap::App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
-        .arg(Arg::with_name("CONFIG")
+        .arg(clap::Arg::with_name("CONFIG")
             .short("C")
             .long("config")
             .help("config for console")
@@ -721,23 +728,23 @@ async fn main() {
             .default_value("console.json")
             .takes_value(true)
             .number_of_values(1))
-        .arg(Arg::with_name("COMMANDS")
+        .arg(clap::Arg::with_name("COMMANDS")
             .allow_hyphen_values(true)
             .short("c")
             .long("cmd")
             .help("schedule command")
             .multiple(true)
             .takes_value(true))
-        .arg(Arg::with_name("TIMEOUT")
+        .arg(clap::Arg::with_name("TIMEOUT")
             .short("t")
             .long("timeout")
             .help("timeout in batch mode")
             .takes_value(true)
             .number_of_values(1))
-        .arg(Arg::with_name("VERBOSE")
+        .arg(clap::Arg::with_name("VERBOSE")
             .long("verbose")
             .help("verbose regim"))
-        .arg(Arg::with_name("JSON")
+        .arg(clap::Arg::with_name("JSON")
             .short("j")
             .long("json")
             .help("output in json format")

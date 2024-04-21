@@ -15,11 +15,11 @@ use clap::{Arg, App};
 use serde_json::{Map, Value};
 use ton_block::{
     ConfigParamEnum, ConfigParam12,
-    Deserializable, Serializable, ShardIdent, ShardStateUnsplit,
+    Deserializable, Serializable, ShardIdent, ShardStateUnsplit, StateInit,
 };
-use ton_types::{serialize_toc, Result, UInt256, HashmapType};
+use ton_types::{write_boc, Result, UInt256, HashmapType};
 
-fn import_zerostate(json: &str) -> Result<()> {
+fn import_zerostate(json: &str) -> Result<ShardStateUnsplit> {
     let map = serde_json::from_str::<Map<String, Value>>(&json)?;
     let mut mc_zero_state = ton_block_json::parse_state(&map)?;
     let now = mc_zero_state.gen_time();
@@ -38,7 +38,7 @@ fn import_zerostate(json: &str) -> Result<()> {
 
         let cell = state.serialize()?;
         descr.zerostate_root_hash = cell.repr_hash();
-        let bytes = ton_types::serialize_toc(&cell)?;
+        let bytes = ton_types::write_boc(&cell)?;
         descr.zerostate_file_hash = UInt256::calc_file_hash(&bytes);
         workchains.set(&workchain_id, &descr)?;
         let name = format!("{:x}.boc", descr.zerostate_file_hash);
@@ -60,9 +60,12 @@ fn import_zerostate(json: &str) -> Result<()> {
     extra.validator_info.nx_cc_updated = true;
     extra.validator_info.catchain_seqno = 0;
     mc_zero_state.write_custom(Some(&extra))?;
-    mc_zero_state.update_config_smc()?;
+    Ok(mc_zero_state)
+}
+
+fn write_zero_state(mc_zero_state: ShardStateUnsplit) -> Result<()> {
     let cell = mc_zero_state.serialize().unwrap();
-    let bytes = serialize_toc(&cell).unwrap();
+    let bytes = write_boc(&cell).unwrap();
     let file_hash = UInt256::calc_file_hash(&bytes);
     let name = format!("{:x}.boc", file_hash);
     std::fs::write(name, &bytes).unwrap();
@@ -74,7 +77,7 @@ fn import_zerostate(json: &str) -> Result<()> {
         u32::construct_from(key).expect("index wasn't deserialized incorrectly");
         param.checked_drain_reference().expect("must contain reference");
         Ok(true)
-    }).expect("somthing wrong with config");
+    }).expect("something wrong with config");
     let prices = extra.config.storage_prices().expect("prices weren't read from config");
     for i in 0..prices.len().expect("prices len wasn't read") as u32 {
         prices.get(i).expect(&format!("prices description {} wasn't read", i));
@@ -111,9 +114,35 @@ fn main() {
             .default_value("zero_state.json")
             .takes_value(true)
             .number_of_values(1))
+        .arg(Arg::with_name("CONFIG")
+            .short("c")
+            .long("config")
+            .help("config TVC filename to get its code")
+            .takes_value(true)
+            .number_of_values(1))
+        .arg(Arg::with_name("ELECTOR")
+            .short("e")
+            .long("elector")
+            .help("elector TVC filename to get its code and data")
+            .takes_value(true)
+            .number_of_values(1))
         .get_matches();
 
     let file_name = args.value_of("INPUT").expect("required set for INPUT");
     let json = std::fs::read_to_string(file_name).unwrap();
-    import_zerostate(&json).unwrap();
+    let mut mc_zero_state = import_zerostate(&json).unwrap();
+    let config_code = if let Some(file_name) = args.value_of("CONFIG") {
+        let state_init = StateInit::construct_from_file(file_name)
+            .unwrap_or_else(|err| panic!("something wrong with config TVC file {} : {}", file_name, err));
+        state_init.code().cloned()
+    } else {
+        None
+    };
+    mc_zero_state.update_config_smc_with_code(config_code).unwrap();
+    if let Some(file_name) = args.value_of("ELECTOR") {
+        let state_init = StateInit::construct_from_file(file_name)
+            .unwrap_or_else(|err| panic!("something wrong with elector TVC file {} : {}", file_name, err));
+        mc_zero_state.update_elector_smc(state_init.code().cloned(), state_init.data().cloned()).unwrap();
+    }
+    write_zero_state(mc_zero_state).unwrap();
 }

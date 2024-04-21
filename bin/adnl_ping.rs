@@ -15,14 +15,13 @@ use adnl::{
     common::TaggedTlObject, 
     node::{AdnlNode, AdnlNodeConfig, AdnlNodeConfigJson, IpAddress}
 };
-use ever_crypto::Ed25519KeyOption;
 use overlay::OverlayNode;
 use std::{convert::TryInto, env, fs::File, io::BufReader, sync::Arc};
 use ton_api::ton::{TLObject, rpc::ton_node::GetCapabilities};
 #[cfg(feature = "telemetry")]
 use ton_api::tag_from_boxed_type;
 use ton_node::config::TonNodeGlobalConfigJson;
-use ton_types::{error, fail, Result};
+use ton_types::{error, fail, Ed25519KeyOption, Result};
 
 include!("../common/src/test.rs");
 
@@ -71,7 +70,7 @@ fn ping(
     )?;
 
     rt.block_on(AdnlNode::start(&adnl, vec![overlay.clone()]))?;
-    if !rt.block_on(async { overlay.add_local_workchain_overlay(None, &overlay_id) })? {
+    if !rt.block_on(async { overlay.add_local_workchain_overlay(None, &overlay_id, None) })? {
         fail!("Cannot add overlay {}", overlay_id)
     }
     let local_key = adnl.key_by_tag(KEY_TAG)?;

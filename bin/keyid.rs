@@ -10,17 +10,12 @@
 * See the License for the specific TON DEV software governing permissions and
 * limitations under the License.
 */
-#[cfg(feature = "export_key")]
-use ever_crypto::Ed25519KeyOption;
-use std::env;
-#[cfg(feature = "export_key")]
-use std::convert::TryInto;
-#[cfg(feature = "export_key")]
-use ton_types::{error, fail, Result};
 
-#[cfg(feature = "export_key")]
+use std::{convert::TryInto, env};
+use ton_types::{error, fail, base64_decode, base64_encode, Ed25519KeyOption, Result};
+
 fn compute(typ: &str, key: &str) -> Result<()> {
-    let key_bin = base64::decode(key)?;
+    let key_bin = base64_decode(key)?;
     let key_bin: [u8; 32] = key_bin.try_into().map_err(
         |_| error!("Cannot decode key properly") 
     )?;
@@ -30,13 +25,14 @@ fn compute(typ: &str, key: &str) -> Result<()> {
     } else if typ.to_lowercase().as_str() == "pvt" {
         println!("Private key: {}", key);
         let key = Ed25519KeyOption::from_private_key(&key_bin)?;
-        println!("Public key: {}", base64::encode(key.pub_key()?));
-        println!("Extended private key: {}", base64::encode(key.export_key()?));
+        println!("Public key: {}", base64_encode(key.pub_key()?));
+        #[cfg(feature = "export_key")]
+        println!("Extended private key: {}", base64_encode(key.export_key()?));
         key
     } else {
         fail!("Wrong key type: expected pub|pvt, found {}", typ)
     };
-    println!("Key id: {}", base64::encode(key.id().data()));
+    println!("Key id: {}", base64_encode(key.id().data()));
     Ok(())
 } 
 
@@ -46,8 +42,5 @@ fn main() {
         println!("Usage: keyid pub|pvt <key in base64>");
         return
     };
-    #[cfg(feature = "export_key")]
     compute(&args[1], &args[2]).unwrap_or_else(|e| println!("Key ID computing error: {}", e));
-    #[cfg(not(feature = "export_key"))]
-    println!("feature export_key is not active!");
 }
